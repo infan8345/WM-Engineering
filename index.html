@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WenChung Minn - Structural Engineer & Developer</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+        .container { max-width: 900px; margin: 0 auto; padding: 40px 20px; }
+
+        /* Header */
+        .header {
+            text-align: center;
+            padding: 60px 0 40px;
+        }
+        .header h1 {
+            font-size: 2.5em;
+            color: #f8fafc;
+            margin-bottom: 10px;
+        }
+        .header .tagline {
+            font-size: 1.2em;
+            color: #94a3b8;
+            margin-bottom: 20px;
+        }
+        .header .divider {
+            width: 80px;
+            height: 3px;
+            background: #3b82f6;
+            margin: 20px auto;
+            border-radius: 2px;
+        }
+
+        /* About */
+        .about {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .about p {
+            line-height: 1.8;
+            color: #cbd5e1;
+            font-size: 1.05em;
+        }
+
+        /* Projects */
+        .section-title {
+            font-size: 1.5em;
+            color: #f8fafc;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #3b82f6;
+            display: inline-block;
+        }
+        .projects { margin-bottom: 40px; }
+        .project-card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+            transition: transform 0.2s, border-color 0.2s;
+        }
+        .project-card:hover {
+            transform: translateY(-3px);
+            border-color: #3b82f6;
+        }
+        .project-card h3 {
+            font-size: 1.3em;
+            color: #60a5fa;
+            margin-bottom: 8px;
+        }
+        .project-card p {
+            color: #94a3b8;
+            line-height: 1.6;
+            margin-bottom: 12px;
+        }
+        .project-card .tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .tag {
+            background: rgba(59, 130, 246, 0.15);
+            color: #60a5fa;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+        }
+        .project-link {
+            color: #3b82f6;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .project-link:hover { text-decoration: underline; }
+
+        /* Skills */
+        .skills {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 40px;
+        }
+        .skill-tag {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 0.9em;
+        }
+
+        /* Contact */
+        .contact {
+            text-align: center;
+            padding: 40px 0;
+        }
+        .contact a {
+            color: #3b82f6;
+            text-decoration: none;
+            font-size: 1.1em;
+            margin: 0 15px;
+        }
+        .contact a:hover { text-decoration: underline; }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 30px 0;
+            color: #475569;
+            font-size: 0.9em;
+            border-top: 1px solid rgba(255,255,255,0.05);
+        }
+
+        /* Privacy Policy section */
+        .legal {
+            background: rgba(255,255,255,0.03);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        .legal h2 { font-size: 1.2em; color: #94a3b8; margin-bottom: 10px; }
+        .legal p { color: #64748b; line-height: 1.6; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+
+        <!-- Header -->
+        <div class="header">
+            <h1>WenChung Minn</h1>
+            <p class="tagline">Structural Engineer & Python Developer</p>
+            <div class="divider"></div>
+        </div>
+
+        <!-- About -->
+        <div class="about">
+            <p>
+                I am a structural engineer with expertise in steel and wood design for residential 
+                and commercial buildings. I build Python-based engineering tools that automate 
+                structural calculations following AISC, ASCE, and CBC design codes. My goal is to 
+                bridge the gap between engineering practice and modern software development.
+            </p>
+        </div>
+
+        <!-- Skills -->
+        <h2 class="section-title">Skills & Expertise</h2>
+        <div class="skills">
+            <span class="skill-tag">Structural Engineering</span>
+            <span class="skill-tag">Python</span>
+            <span class="skill-tag">Steel Design (AISC)</span>
+            <span class="skill-tag">Wood Design (NDS)</span>
+            <span class="skill-tag">Seismic Analysis</span>
+            <span class="skill-tag">Kivy GUI</span>
+            <span class="skill-tag">NumPy</span>
+            <span class="skill-tag">Matplotlib</span>
+            <span class="skill-tag">ASCE 7-16</span>
+            <span class="skill-tag">CBC 2022</span>
+            <span class="skill-tag">LaTeX Reports</span>
+            <span class="skill-tag">AI Automation</span>
+        </div>
+
+        <!-- Projects -->
+        <h2 class="section-title">Projects</h2>
+        <div class="projects">
+
+            <div class="project-card">
+                <h3>Wood & Steel Beam Design Tools</h3>
+                <p>
+                    Interactive structural engineering applications for beam analysis, steel moment 
+                    frame design, and detailed load calculations. Features seismic design per 
+                    AISC 341-16, interaction checks, RBS connection design, shear/moment diagrams, 
+                    and LaTeX report generation.
+                </p>
+                <div class="tags">
+                    <span class="tag">Python</span>
+                    <span class="tag">Kivy</span>
+                    <span class="tag">AISC 360-16</span>
+                    <span class="tag">ASCE 7-16</span>
+                    <span class="tag">Seismic Design</span>
+                </div>
+                <a class="project-link" href="https://github.com/wminn1034-stack/Wood-beam-design" target="_blank">
+                    View on GitHub &rarr;
+                </a>
+            </div>
+
+            <div class="project-card">
+                <h3>TikTok Automation Pipeline</h3>
+                <p>
+                    Automated content creation and posting pipeline that generates AI avatar videos 
+                    using HeyGen API and uploads them to TikTok via the Content Posting API. 
+                    End-to-end automation from script to published video.
+                </p>
+                <div class="tags">
+                    <span class="tag">Python</span>
+                    <span class="tag">HeyGen API</span>
+                    <span class="tag">TikTok API</span>
+                    <span class="tag">Automation</span>
+                </div>
+                <a class="project-link" href="https://github.com/wminn1034-stack" target="_blank">
+                    View on GitHub &rarr;
+                </a>
+            </div>
+
+        </div>
+
+        <!-- Contact -->
+        <div class="contact">
+            <h2 class="section-title">Contact</h2>
+            <br><br>
+            <a href="https://github.com/wminn1034-stack" target="_blank">GitHub</a>
+            <a href="https://www.tiktok.com/@wminn1034" target="_blank">TikTok</a>
+        </div>
+
+        <!-- Privacy Policy (needed for TikTok developer app) -->
+        <div class="legal" id="privacy">
+            <h2>Privacy Policy</h2>
+            <p>
+                This website and its associated applications do not collect, store, or share any 
+                personal user data. When using our TikTok integration, we only access the minimum 
+                required permissions (video publishing) as authorized by the user through TikTok's 
+                official OAuth flow. No user data is stored on our servers. Users can revoke access 
+                at any time through their TikTok account settings.
+            </p>
+        </div>
+
+        <div class="legal" id="terms">
+            <h2>Terms of Service</h2>
+            <p>
+                By using our applications and tools, you agree to use them responsibly and in 
+                compliance with all applicable laws and platform guidelines. Our tools are provided 
+                "as is" without warranty of any kind. We are not responsible for any content created 
+                or published using our automation tools. Users are solely responsible for ensuring 
+                their content complies with TikTok's community guidelines and terms of service.
+            </p>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <p>&copy; 2026 WenChung Minn. Built for engineers who code.</p>
+        </div>
+
+    </div>
+</body>
+</html>
