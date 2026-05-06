@@ -1,0 +1,319 @@
+# SHEAR WALL PROGRAM - Python conversion (from SHEARSCR.BAS, MS BASIC, 6-22-85)
+# Computes lateral force distribution and torsional shear in shear walls
+
+import os
+
+# ============ Globals (1-indexed for fidelity to BASIC) ============
+SIZE = 65
+T = [0.0] * SIZE       # wall thickness
+F = [0.0] * SIZE       # total shear (kip)
+H = [0.0] * SIZE       # wall height
+D = [0.0] * SIZE       # wall length
+E = [0.0] * SIZE       # elastic modulus
+V = [0.0] * SIZE       # direct shear
+V1 = [0.0] * SIZE      # torsional shear
+X = [0.0] * SIZE       # x-position
+R = [0.0] * SIZE       # rigidity
+W = [""] * 151         # wall names
+
+A1_str = " N-S DIRECTION ---"
+A2_str = " E-W DIRECTION ---"
+C_str  = " LOCATION OF C.G. = "
+D_str  = " BASE SHEAR = "
+R_str  = "6-22-85"
+L_str  = "LATERAL"
+A_str  = " # OF WALL PIERS  = "
+B_str  = " PLAN DIMENSION   = "
+
+V5 = 100.0
+J = 0          # 0 = N-S, 1 = E-W
+NN = 0         # # of N-S wall piers
+NE = 0         # # of E-W wall piers
+LE = 0.0       # E-W plan dim
+LN = 0.0       # N-S plan dim
+CE = 0.0       # E-W center of gravity
+CN = 0.0       # N-S center of gravity
+BASE_V = 0.0   # base shear
+L = 0.0        # max plan dim
+ID = 0
+
+# Per-direction results
+A1 = R1 = X1 = M1 = 0.0
+A2 = R2 = X2 = M2 = 0.0
+A_total = M = 0.0
+
+
+def cls():
+    os.system("cls" if os.name == "nt" else "clear")
+
+
+def print_title():
+    cls()
+    print(f" SHEAR WALL PROGRAM   {R_str}\n")
+    print(A2_str if J == 1 else A1_str)
+
+
+def print_wall_header():
+    print("WALL      H      D       T       X        E")
+    print("NAME     FT     FT      IN      FT       KSI")
+
+
+def input_pier(i):
+    """Input data for one wall pier."""
+    global W, H, D, T, E, X
+    print_wall_header()
+    print(f"{W[i]:<5}", end="")
+    print(f"{H[i]:9.2f}{D[i]:9.2f}{T[i]:9.2f}{X[i]:9.2f}{E[i]:10.2f}")
+    name = input("WALL NAME: ").strip()
+    if name:
+        W[i] = name
+    val = input("H (FT): ").strip()
+    if val: H[i] = float(val)
+    val = input("D (FT): ").strip()
+    if val: D[i] = float(val)
+    val = input("T (IN): ").strip()
+    if val: T[i] = float(val)
+    val = input("X (FT): ").strip()
+    if val: X[i] = float(val)
+    val = input("E (KSI): ").strip()
+    if val: E[i] = float(val)
+
+
+def input_revision():
+    print("ANY DATA TO BE REVISED")
+    print("IF YES--KEY 1")
+    ans = input("IF NO---KEY 0 ").strip()
+    return ans == "1"
+
+
+def input_pier_range(j1, j2):
+    print_title()
+    for i in range(j1, j2 + 1):
+        if J == 1:
+            print(f"WALL PIER # {i - NN}\n")
+        else:
+            print(f"WALL PIER # {i}\n")
+        input_pier(i)
+    while input_revision():
+        try:
+            wall_num = int(input("INPUT THE # OF WHICH WALL PIER TO BE REVISED: "))
+        except ValueError:
+            continue
+        idx = wall_num + NN if J == 1 else wall_num
+        print_title()
+        if J == 1:
+            print(f"WALL PIER # {idx - NN}\n")
+        else:
+            print(f"WALL PIER # {idx}\n")
+        input_pier(idx)
+
+
+def calc_rigidity(i):
+    """Compute the rigidity R[i] for a single wall pier."""
+    global V5, ID
+    if ID == 1:
+        V5 = V[i] * 100.0 / D[i]
+        V5 = V[i] * 100.0   # second statement overrides per BASIC code
+    else:
+        V5 = 100.0
+        ID = 0
+    BEN = 8.0 * V5 * H[i] * H[i] / (10.5 * E[i] * 1000.0)
+    SH  = V5 * H[i] / (35.0 * 1000.0)
+    NS_term = 0.75 * H[i] * ((V5 / (12.0 / 6.0)) / 616.0) ** 3.018
+    GT = 350.0 * 1000.0
+    SH = V[i] * H[i]   # overrides per BASIC code
+    HS = 0.0
+    B = H[i] / D[i]
+    R[i] = 1.0 / (BEN * B + SH / GT + NS_term + HS * B)
+
+
+def compute_direction(j1, j2, c, is_first):
+    """Distribute base shear in one direction; compute center of rigidity, torsional moment."""
+    global A_total, M, ID, A1, R1, X1, M1, A2, R2, X2, M2
+    R_sum = 0.0
+    X9 = 0.0
+    for i in range(j1, j2 + 1):
+        calc_rigidity(i)
+        R_sum += R[i]
+        X9 += R[i] * X[i]
+    X_cr = X9 / R_sum
+    if abs(c - X_cr) > 0.05 * L:
+        M_local = (X_cr - c) * BASE_V
+    else:
+        M_local = -0.05 * L * BASE_V if c > X_cr else 0.05 * L * BASE_V
+
+    A_local = 0.0
+    for i in range(j1, j2 + 1):
+        A8 = X_cr - X[i]
+        A_local += R[i] * A8 * A8
+        V[i] = R[i] * BASE_V / R_sum
+    ID = 1
+
+    if is_first:
+        A1, R1, X1, M1 = A_local, R_sum, X_cr, M_local
+    else:
+        A2, R2, X2, M2 = A_local, R_sum, X_cr, M_local
+
+
+def compute_torsional_shear(j1, j2, x_cr, m_torsion, a_total):
+    """Compute torsional shear V1[i] and total shear F[i]."""
+    for i in range(j1, j2 + 1):
+        if a_total != 0:
+            V1[i] = m_torsion * R[i] * (x_cr - X[i]) / a_total
+            if V1[i] < 0:
+                F[i] = V[i]
+            else:
+                F[i] = V[i] + V1[i]
+        else:
+            F[i] = V[i]
+
+
+def print_results_header():
+    print()
+    print(" WALL   H    D    T     X      E   H/D   R        RAA"
+          "   V     V'     F     V/D")
+    print("        FT   FT   IN    FT    KSI"
+          "                       KIP   KIP    KIP   PLF")
+
+
+def print_pier_line(i, x_cr, use_v1_only):
+    raa = int((x_cr - X[i]) ** 2 * R[i])
+    line = (f" {W[i]:<4} {H[i]:6.2f} {D[i]:5.1f} {T[i]:4.1f} "
+            f"{X[i]:6.2f} {E[i]:4.0f} {H[i]/D[i]:5.2f} "
+            f"{R[i]:4.0f} {raa:7d}")
+    if use_v1_only:
+        line += f"{0:6.1f} {abs(V1[i]):5.1f} {abs(V1[i]):6.1f} {abs(V1[i]*1000/D[i]):5.1f}"
+    else:
+        line += f"{V[i]:6.1f} {V1[i]:5.1f} {F[i]:6.1f} {F[i]*1000/D[i]:5.1f}"
+    print(line)
+
+
+def print_torsion_info(x_cr, m_torsion):
+    input("Press Enter to continue...")
+    print(f" LOCATION OF C.R. = {x_cr:7.2f} (FT)")
+    ratio = abs(m_torsion / BASE_V) if BASE_V else 0
+    print(f" TORSIONAL  M     = {BASE_V} X {ratio:6.2f} = {abs(m_torsion):8.1f} (FT-KIP)")
+    print()
+    print(" H---WALL HEIGHT")
+    print(" D---WALL LENGTH")
+    print(" T---WALL THICKNESS")
+    print(" X---DISTANCE WALL TO ORIGIN")
+    print(" R---WALL RIGIDITY")
+    print(" V---DIRECT SHEAR")
+    print(" V'--TORSIONAL SHEAR")
+    print(" F---TOTAL SHEAR")
+    input("Press Enter to continue...")
+
+
+def print_summary(r_val, a_val, label):
+    print(f"{'':<41}{r_val:6.1f} {a_val:7.0f}   ({label})")
+
+
+def print_section_header(direction):
+    print(chr(14) + direction + L_str)
+    print(f"{D_str}{BASE_V} (KIP)")
+    print(f"{A1_str}{A_str}{NN}")
+    print(f"{A2_str}{B_str}{LE} (FT)")
+    print(f"{A2_str}{C_str}{CE} ( FT)")
+
+
+# ====================== INPUT PHASE ======================
+def do_input():
+    global J, NN, NE, LE, CE, LN, CN, BASE_V, L
+    J = 0
+    print_title()
+    print(" MAX. 60 PIERS")
+    BASE_V = float(input(D_str))
+    NN     = int(input(A1_str + A_str))
+    LE     = float(input(A2_str + B_str))
+    CE     = float(input(A2_str + C_str))
+    input_pier_range(1, NN)
+
+    J = 1
+    print_title()
+    NE = int(input(A2_str + A_str))
+    LN = float(input(A1_str + B_str))
+    CN = float(input(A1_str + C_str))
+    input_pier_range(NN + 1, NN + NE)
+
+    L = max(LN, LE)
+
+
+def do_calculations():
+    compute_direction(1, NN, CE, is_first=True)
+    compute_direction(NN + 1, NN + NE, CN, is_first=False)
+
+
+def do_print():
+    # ---------- N-S DIRECTION REPORT ----------
+    print_section_header(A1_str + " ")
+    print_results_header()
+    compute_torsional_shear(1, NN, X1, M1, A1 + A2)
+    for i in range(1, NN + 1):
+        print_pier_line(i, X1, use_v1_only=False)
+    print_summary(R1, A1, "N-S")
+    input("Press Enter for E-W piers in N-S section...")
+
+    print(f"{A2_str}{A_str}{NE}")
+    print(f"{A1_str}{B_str}{LN} (FT)")
+    print(f"{A1_str}{C_str}{CN} (FT)")
+    compute_torsional_shear(NN + 1, NN + NE, X2, M1, A1 + A2)
+    for i in range(NN + 1, NN + NE + 1):
+        print_pier_line(i, X2, use_v1_only=True)
+    print_summary(R2, A2, "E-W")
+    print(f"{'':<47}{A1 + A2:7.0f}   (TOTAL A)")
+    print_torsion_info(X1, M1)
+
+    # ---------- E-W DIRECTION REPORT ----------
+    print_section_header(A2_str + " ")
+    print_results_header()
+    compute_torsional_shear(1, NN, X1, M2, A1 + A2)
+    for i in range(1, NN + 1):
+        print_pier_line(i, X1, use_v1_only=True)
+    print_summary(R1, A1, "N-S")
+    input("Press Enter for E-W piers in E-W section...")
+
+    print(f"{A2_str}{A_str}{NE}")
+    print(f"{A1_str}{B_str}{LN} (FT)")
+    print(f"{A1_str}{C_str}{CN} (FT)")
+    compute_torsional_shear(NN + 1, NN + NE, X2, M2, A1 + A2)
+    for i in range(NN + 1, NN + NE + 1):
+        print_pier_line(i, X2, use_v1_only=False)
+    print_summary(R2, A2, "E-W")
+    print(f"{'':<47}{A1 + A2:7.0f}   (TOTAL A)")
+    print_torsion_info(X2, M2)
+
+
+# ====================== MAIN LOOP ======================
+def main():
+    do_input()
+    while True:
+        do_calculations()
+        do_print()
+        print("\nIF DATA WRONG--KEY 1")
+        choice = input("MORE PRINTS----KEY 2: ").strip()
+        if choice == "1":
+            # revise data
+            global J
+            J = 0; print_title()
+            while input_revision():
+                try:
+                    wall_num = int(input("WALL PIER # TO REVISE: "))
+                    input_pier(wall_num)
+                except ValueError:
+                    continue
+            J = 1; print_title()
+            while input_revision():
+                try:
+                    wall_num = int(input("WALL PIER # TO REVISE: "))
+                    input_pier(wall_num + NN)
+                except ValueError:
+                    continue
+        elif choice == "2":
+            continue
+        else:
+            break
+
+
+if __name__ == "__main__":
+    main()

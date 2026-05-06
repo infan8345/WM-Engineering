@@ -1,0 +1,374 @@
+That's a plain text `.bas` file already. Here's the Python conversion of this **Flat Slab Analysis Program**:
+
+```python
+import math
+import os
+
+# FLAT SLAB PROGRAM - Python conversion
+# Original: FLAT2SCN.BAS (5-5-85)
+
+# ========== 1-indexed arrays ==========
+def arr1d(n):
+    return [0.0] * (n + 1)
+
+def arr2d(rows, cols):
+    return [[0.0] * (cols + 1) for _ in range(rows + 1)]
+
+def clear():
+    os.system("cls" if os.name == "nt" else "clear")
+
+def fnb(a):
+    return 3.1416 * a * a / 256
+
+# ========== GLOBALS ==========
+L = arr1d(15); W = arr1d(15); SB = arr1d(15); MS = arr1d(15)
+MP = arr1d(15); MPR = arr1d(15)
+DF = arr2d(15, 2); R_arr = arr2d(15, 2); MPD = arr2d(15, 2); MED = arr2d(15, 2)
+MF = arr2d(15, 2); MT = arr2d(15, 2); MB = arr2d(15, 2)
+MC = arr2d(15, 2); ME = arr2d(15, 2); MER = arr2d(15, 2)
+A = arr1d(8); NS_s = [""] * 16; S = arr1d(6)
+
+BC = BL = BR = T = D = FC = FY = 0.0
+AMIN = MMIN = BL1 = BR1 = 0.0
+A7_val = L2 = 0.0
+A8 = 0.0
+N3 = D1 = D3 = 0
+N1 = N2 = 0
+S1 = 0.0
+
+
+def sr_min_as():
+    global AMIN, MMIN
+    AMIN = 0.0018 * B * T if FY >= 60 else 0.002 * B * T
+    MMIN = AMIN * 0.9 * FY * (D - (AMIN * FY) / (1.7 * B * FC))
+
+
+def sr_2260():
+    A[6] = A[1] * (100 - A[2]) / 100
+    d_ = 0.9 * B * D * D * FC
+    A[7] = FC * (1 - math.sqrt(1 - 2.36 * A[6] / d_)) / (1.18 * FY) if d_ != 0 else 0
+    A[8] = A[7] * B * D
+
+
+def sr_2240():
+    global S1, D3
+    S1 = fnb(D1) * 12 / (AMIN * 12 / B)
+    S1 = int(S1 * 2) / 2
+    D3 = D1
+
+
+def sr_2250():
+    global S1, D3
+    S1 = fnb(D1) * 12 / (A[7] * 12 * D)
+    S1 = int(S1 * 2) / 2
+    D3 = D1
+
+
+def sr_rebar():
+    global A, D1, D3, N3, N1, N2, S1
+    d_ = 0.9 * BC * D * D * FC
+    if d_ != 0 and 2.36 * A[3] / d_ < 1:
+        A[4] = FC * (1 - math.sqrt(1 - 2.36 * A[3] / d_)) / (1.18 * FY)
+    else:
+        A[4] = FC / (1.18 * FY)
+    A[5] = BC * D * A[4]
+
+    if A[5] <= 0:
+        A[4] = abs(A[4]); A[5] = abs(A[5])
+        D1 = 5; N1 = A[5] / fnb(D1); N3 = 3
+        return
+    if AMIN >= A[5]:
+        D1 = 5; N1 = AMIN / fnb(D1); N3 = 0; sr_2240()
+        return
+    if AMIN >= A[8]:
+        D1 = 5
+        while True:
+            N1 = (A[5] - AMIN) / fnb(D1); N3 = 1
+            if N1 < 9: break
+            D1 += 1
+        D2 = D1 + 1; N2 = (A[5] - AMIN) / fnb(D2)
+    else:
+        sr_2250()
+        D1 = 5
+        while True:
+            N1 = (A[5] - A[8]) / fnb(D1); N3 = 2
+            if N1 < 10 or D1 == 8: break
+            D1 += 1
+        D2 = D1 + 1; N2 = (A[5] - A[8]) / fnb(D2)
+
+
+def sr_print_cond(i, j):
+    print(f" CANTILEVER  AT {NS_s[j]}  L = {L[i]:6.2f} FT  W = {W[i]} K/FT ")
+
+
+def sr_weight(n4, i_idx):
+    global A8, A7_val, L2
+    if n4 > 0.84:
+        L1 = L[i_idx]
+    elif i_idx == 2:
+        if FSC == 1:
+            L1 = L[1] * 2.5 / 0.55 if L[1] / 1.5 >= 0.275 * L[2] else L[1] / 0.55 + L[2] / 2
+        else:
+            L1 = L[2] / 1.8
+    elif i_idx == NS + 2:
+        if LSC == 1:
+            L1 = L[NS+2] * 2.5 / 0.55 if L[NS+2] / 1.5 >= 0.275 * L[NS+1] else L[NS+2] / 0.55 + L[NS+1] / 2
+        else:
+            L1 = L[NS+1] / 1.8
+    elif L[i_idx - 1] >= L[i_idx]:
+        L1 = L[i_idx - 1]
+    else:
+        L1 = L[i_idx]
+    N5 = A[5] / fnb(D1) if A[5] > AMIN else AMIN / fnb(D1)
+    A7_val = int(N5 + 0.6) * 3.1416 * D1 * D1 * L1 * n4 * 3.4 / 256
+    A8 += A7_val
+
+
+def sr_title():
+    print(chr(12))
+    print(chr(15) + chr(14) + "ROBERT SHIANG AND ASSOCIATES")
+    print(chr(18) + "CONSULTING STRUCTURAL ENGINEER")
+    print(chr(15) + "24050   MADISON   STREET,   SUITE  112     TORRANCE   JOB    NO.")
+    print("CA. 90505          TEL. (213)373-7306          SHEET  NO.")
+    print(chr(18) + chr(27) + "E" + "-" * 80 + chr(27) + "F")
+
+
+# ========== INPUT ==========
+SL_s = input("SLAB LINE ")
+NS = int(input("# OF SPAN N = "))
+FC = float(input("F'C (KSI) = "))
+FY = float(input("F'Y (KSI) = "))
+T = float(input("T (IN)= "))
+D = float(input("D (IN)= "))
+clear()
+
+BC = float(input("COLUMN    STRIP WIDTH B    (IN) = "))
+BL = float(input("LEFT  MID STRIP WIDTH B(L) (IN) = "))
+BR = float(input("RIGHT MID STRIP WIDTH B(R) (IN) = "))
+clear()
+
+for i in range(2, NS + 3):
+    NS_s[i] = input("NAME OF SUPPORT ")
+    SB[i] = float(input("COL. OR CAP WIDTH B (IN)= "))
+clear()
+
+print("FIRST SPAN END CONDITION")
+print("CANTL,----KEY 1\nFIXED-----KEY 2\nPINNED----KEY 3")
+FSC = int(input())
+if FSC == 1:
+    L[1] = float(input("CANTL. L(FT)= "))
+    W[1] = float(input("W(K/FT) = "))
+clear()
+
+for i in range(2, NS + 2):
+    print(f"SPAN {NS_s[i]} - {NS_s[i + 1]}")
+    L[i] = float(input("L (FT)="))
+    W[i] = float(input("W(K/FT)= "))
+    print()
+
+print("LAST SPAN END CONDITION")
+print("CANTL.----KEY 1\nFIXED-----KEY 2\nPINNED----KEY 3")
+LSC = int(input())
+if LSC == 1:
+    L[NS + 2] = float(input("CANTILEVER  L(FT) = "))
+    W[NS + 2] = float(input("W (K/FT) = "))
+
+# ========== CALCULATIONS ==========
+if FSC == 1:
+    MF[2][1] = -6 * W[1] * L[1] ** 2
+    DF[2][1] = 0; DF[2][2] = 1
+    R_arr[2][1] = W[1] * L[1]
+elif FSC == 2:
+    DF[2][1] = 1; DF[2][2] = 0
+elif FSC == 3:
+    DF[2][1] = 0; DF[2][2] = 1
+
+if LSC == 1:
+    MF[NS + 2][2] = 6 * W[NS + 2] * L[NS + 2] ** 2
+    DF[NS + 2][1] = 1; DF[NS + 2][2] = 0
+    R_arr[NS + 2][2] = W[NS + 2] * L[NS + 2]
+elif LSC == 2:
+    DF[NS + 2][1] = 0; DF[NS + 2][2] = 1
+elif LSC == 3:
+    DF[NS + 2][1] = 1; DF[NS + 2][2] = 0
+
+for i in range(2, NS + 1):
+    DF[i + 1][1] = int((L[i + 1] / (L[i] + L[i + 1]) + 0.005) * 100) / 100
+    DF[i + 1][2] = 1 - DF[i + 1][1]
+
+for i in range(2, NS + 2):
+    MF[i][2] = W[i] * L[i] ** 2
+    MF[i + 1][1] = -MF[i][2]
+    MS[i] = 1.5 * W[i] * L[i] ** 2
+    R_arr[i][2] = W[i] * L[i] / 2
+    R_arr[i + 1][1] = R_arr[i][2]
+
+for _ in range(6):
+    for i in range(2, NS + 3):
+        for j in range(1, 3):
+            MT[i][j] = MF[i][j]
+            ME[i][j] = 0
+    for i in range(2, NS + 3):
+        for j in range(1, 3):
+            MB[i][j] = -(MT[i][1] + MT[i][2]) * DF[i][j]
+    for i in range(2, NS + 3):
+        MC[i][1] = MB[i - 1][2] / 2
+        MC[i][2] = MB[i + 1][1] / 2
+    for i in range(2, NS + 3):
+        for j in range(1, 3):
+            ME[i][j] += MT[i][j] + MB[i][j]
+            MT[i][j] = MC[i][j]
+
+for i in range(2, NS + 2):
+    V = (ME[i][2] + ME[i + 1][1]) / (L[i] * 12)
+    if V < 0:
+        R_arr[i + 1][1] -= V
+    else:
+        R_arr[i][2] += V
+
+for i in range(3, NS + 2):
+    for j in range(1, 3):
+        MER[i][j] = ME[i][j] - R_arr[i][j] * SB[i] / 3 if ME[i][j] >= 0 else ME[i][j] + R_arr[i][j] * SB[i] / 3
+
+for i in range(2, NS + 2):
+    MP[i] = MS[i] - ME[i][2] / 2 + ME[i + 1][1] / 2
+    sgn = 1 if MP[i] >= 0 else -1
+    MPR[i] = MP[i] - sgn * (R_arr[i][2] * SB[i] + R_arr[i + 1][1] * SB[i + 1]) / 12
+
+# ========== OUTPUT LOOP ==========
+while True:
+    sr_title()
+    print(f"SLAB LINE {SL_s}\n")
+
+    if FSC == 2:
+        print(f" FIXED  AT {NS_s[2]}")
+    elif FSC == 1:
+        sr_print_cond(1, 2)
+
+    for i in range(2, NS + 2):
+        print(f"SPAN {NS_s[i]}-{NS_s[i + 1]}     L = {L[i]:6.2f}  (FT)     W = {W[i]:6.2f}  (K/FT)")
+
+    if LSC == 2:
+        print(f" FIXED  AT {NS_s[NS + 1]}")
+    elif LSC == 1:
+        sr_print_cond(NS + 2, NS + 1)
+
+    print("\nSUPPORT      COL. OR CAP WIDTH (IN)")
+    for i in range(2, NS + 3):
+        print(f"  {NS_s[i]:<10} {SB[i]:6.1f}")
+
+    print("\n SPAN        D.F.           FEM.            -M          RED.-M       +M   RED.+M")
+    print("           (L)   (R)     (L)    (R)     (L)    (R)    (L)    (R)")
+
+    for i in range(2, NS + 2):
+        print(f"{NS_s[i]}-{NS_s[i + 1]}", end="")
+        print(f" {DF[i][2]:6.2f} {DF[i + 1][1]:6.2f}", end="")
+        print(f" {int(MF[i][2]):6d} {int(MF[i + 1][1]):6d}", end="")
+        print(f" {int(ME[i][2]):6d} {int(ME[i + 1][1]):6d}", end="")
+        print(f" {int(MER[i][2]):6d} {int(MER[i + 1][1]):6d}", end="")
+        print(f" {int(MP[i]):6d} {int(MPR[i]):6d}")
+
+    # ========== COLUMN STRIP ==========
+    B = BC
+    sr_min_as()
+
+    for i in range(2, NS + 3):
+        MED[i][1] = abs(MER[i][2]) if MER[i][2] >= abs(MER[i][1]) else abs(MER[i][1])
+
+    for i in range(2, NS + 3):
+        if MED[i][1] * 0.24 <= MMIN:
+            MED[i][2] = 68 if MED[i][1] * 0.32 <= MMIN else 100 - int(MMIN * 100 / MED[i][1])
+        else:
+            MED[i][2] = 76
+
+    for i in range(2, NS + 2):
+        MPD[i][1] = MPR[i]
+        if MPR[i] * 0.4 <= MMIN:
+            MPD[i][2] = 54 if MPR[i] * 0.46 <= MMIN else 100 - int(MMIN * 100 / MPD[i][1])
+        else:
+            MPD[i][2] = 60
+
+    print(f"\nCOLUMN  STRIP  B={BC}")
+    print(f"F'C={FC} F'Y={FY} T={T} D={D}\n")
+    print("SUP.  M(T)     %      M     P      AS     STEEL")
+
+    for i in range(2, NS + 3):
+        A = arr1d(8)
+        A[2] = MED[i][2]; A[1] = MED[i][1]; A[3] = A[1] * A[2] / 100
+        sr_2260(); sr_rebar()
+        if A[3] == 0:
+            print(NS_s[i])
+        else:
+            mark = " *" if N3 == 0 else " +"
+            print(f" {NS_s[i]:<4} {A[1]:7.0f} {A[2]:3.0f}% {A[3]:7.0f} {A[4]:.5f} {A[5]:7.2f}  #{D3}@{S1} O.C.{mark}", end="")
+            if N3 != 0:
+                print(f" {int(N1 + 0.7):3.0f}#{D1} OR {int(N2 + 0.7):3.0f}#{D2}")
+            else:
+                print()
+        input(" ")
+        sr_weight(0.55, i)
+        if i != NS + 2:
+            A = arr1d(8)
+            A[1] = MPD[i][1]; A[2] = MPD[i][2]; A[3] = A[1] * A[2] / 100
+            sr_2260(); sr_rebar()
+            if N3 == 0:
+                print(f"      {A[1]:7.0f} {A[2]:3.0f}% {A[3]:7.0f} {A[4]:.5f} {A[5]:7.2f}  #{D3}@{S1} O.C. *")
+            elif N3 == 3:
+                print(f"      {A[1]:7.0f} {A[2]:3.0f}% {A[3]:7.0f} {A[4]:.5f} {A[5]:7.2f}  {int(N1 + 0.7):3.0f}#{D1} *")
+            else:
+                print(f"      {A[1]:7.0f} {A[2]:3.0f}% {A[3]:7.0f} {A[4]:.5f} {A[5]:7.2f}  #{D3}@{S1} O.C. +", end="")
+                print(f" {int(N1 + 0.7):3.0f}#{D1} OR {int(N2 + 0.7):3.0f}#{D2}")
+            input(" ")
+            sr_weight(0.94 if (i == 2 or i == NS + 1) else 0.875, i)
+
+    # ========== MIDDLE STRIP ==========
+    print(f"\nMIDDLE   STRIP   B(L)={BL}   B(R)={BR}")
+    input(" ")
+    print("SUP.  M(T)     %      M     P      AS     STEEL")
+
+    B = BL + BR
+    sr_min_as()
+    BL1 = 2 * BL / B
+    BR1 = 2 * BR / B
+
+    for i in range(2, NS + 3):
+        A = arr1d(8)
+        A[1] = MED[i][1]; A[2] = 100 - MED[i][2]; A[3] = A[1] * A[2] / 100; A[6] = A[3]
+        sr_2260(); sr_rebar()
+        if A[3] == 0:
+            print(f" {NS_s[i]}")
+        else:
+            mark = " *" if N3 == 0 else "  "
+            print(f" {NS_s[i]:<4} {A[1]:7.0f} {A[2]:3.0f}% {A[3]:7.0f} {A[4]:.5f} {A[5]:7.2f}  #{D3}@{S1} O.C.{mark}")
+        input(" ")
+        sr_weight(0.5, i)
+        if i != NS + 2:
+            A = arr1d(8)
+            A[1] = MPD[i][1]; A[2] = 100 - MPD[i][2]; A[3] = A[1] * A[2] / 100; A[6] = A[3]
+            sr_2260(); sr_rebar()
+            if N3 == 0:
+                print(f"      {A[1]:7.0f} {A[2]:3.0f}% {A[3]:7.0f} {A[4]:.5f} {A[5]:7.2f}  #{D3}@{S1} O.C. *")
+            elif N3 == 3:
+                print(f"      {A[1]:7.0f} {A[2]:3.0f}% {A[3]:7.0f} {A[4]:.5f} {A[5]:7.2f}  {int(N1 + 0.7):3.0f}#{D1} *")
+            else:
+                print(f"      {A[1]:7.0f} {A[2]:3.0f}% {A[3]:7.0f} {A[4]:.5f} {A[5]:7.2f}  #{D3}@{S1} O.C.")
+            input(" ")
+            sr_weight(0.93 if (i == 2 or i == NS + 1) else 0.85, i)
+
+    L2 = sum(L[1:NS + 3])
+    A7_val = L2 * (BC + BL + BR) / 12
+
+    input(" ")
+    print(f"\nTOTAL RE-BAR WT.  = {int(A8)} LB.")
+    input(" ")
+    print(f"AREA OF THE STRIP = {int(A7_val)} SQ. FT")
+    input(" ")
+    print(f"RE-BAR WT.        = {int(A8 * 100 / A7_val) / 100} LB./SQ. FT")
+    input(" ")
+
+    A8 = 0; A7_val = 0; L2 = 0
+    if input("\nPrint again? (Y/N): ").upper() != "Y":
+        break
+```
+
+The `$` signs were only in string literals (`NS$`, `SL$`, `PR2$`, etc.) — already converted to `_s` suffix and plain variables. The program is a **flat slab concrete analysis** tool that performs moment distribution and calculates rebar requirements for column and middle strips.
