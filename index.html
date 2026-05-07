@@ -3,272 +3,278 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WenChung Minn - Structural Engineer & Developer</title>
+    <title>WM‑Engineering | Structural Engineering Tools</title>
+
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-            color: #e2e8f0;
-            min-height: 100vh;
+        :root {
+            --bg: #f5f5f5;
+            --text: #222;
+            --card-bg: #ffffff;
+            --header-bg: #003366;
+            --header-text: #ffffff;
+            --placeholder-bg: #e0e0e0;
         }
-        .container { max-width: 900px; margin: 0 auto; padding: 40px 20px; }
+
+        body.dark {
+            --bg: #1e1e1e;
+            --text: #e6e6e6;
+            --card-bg: #2a2a2a;
+            --header-bg: #001a33;
+            --header-text: #ffffff;
+            --placeholder-bg: #444;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: var(--bg);
+            color: var(--text);
+            transition: background 0.3s, color 0.3s;
+        }
 
         /* Header */
-        .header {
+        header {
+            background: var(--header-bg);
+            color: var(--header-text);
+            padding: 40px 20px;
             text-align: center;
-            padding: 60px 0 40px;
-        }
-        .header h1 {
-            font-size: 2.5em;
-            color: #f8fafc;
-            margin-bottom: 10px;
-        }
-        .header .tagline {
-            font-size: 1.2em;
-            color: #94a3b8;
-            margin-bottom: 20px;
-        }
-        .header .divider {
-            width: 80px;
-            height: 3px;
-            background: #3b82f6;
-            margin: 20px auto;
-            border-radius: 2px;
+            position: relative;
         }
 
-        /* About */
-        .about {
-            background: rgba(255,255,255,0.05);
-            border-radius: 12px;
+        h1 { margin: 0; font-size: 2.4rem; }
+        h2 { color: var(--header-bg); margin-top: 40px; }
+        body.dark h2 { color: #66aaff; }
+
+        /* Container */
+        .container {
+            max-width: 900px;
+            margin: 40px auto;
+            background: var(--card-bg);
             padding: 30px;
-            margin-bottom: 30px;
-            border: 1px solid rgba(255,255,255,0.1);
-        }
-        .about p {
-            line-height: 1.8;
-            color: #cbd5e1;
-            font-size: 1.05em;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            transition: background 0.3s;
         }
 
-        /* Projects */
-        .section-title {
-            font-size: 1.5em;
-            color: #f8fafc;
-            margin-bottom: 20px;
-            padding-bottom: 10px;
-            border-bottom: 2px solid #3b82f6;
-            display: inline-block;
+        ul { line-height: 1.7; }
+        a { color: var(--header-bg); }
+
+        /* Dark Mode Button */
+        .dark-toggle {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: var(--card-bg);
+            color: var(--text);
+            border: 1px solid #888;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
         }
-        .projects { margin-bottom: 40px; }
-        .project-card {
-            background: rgba(255,255,255,0.05);
-            border-radius: 12px;
-            padding: 25px;
-            margin-bottom: 20px;
-            border: 1px solid rgba(255,255,255,0.1);
-            transition: transform 0.2s, border-color 0.2s;
+
+        /* Sidebar */
+        .menu-btn {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: var(--card-bg);
+            color: var(--text);
+            border: 1px solid #888;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            z-index: 1100;
         }
-        .project-card:hover {
-            transform: translateY(-3px);
-            border-color: #3b82f6;
+
+        .sidebar {
+            height: 100%;
+            width: 260px;
+            position: fixed;
+            top: 0;
+            left: -260px;
+            background: var(--card-bg);
+            color: var(--text);
+            padding-top: 60px;
+            transition: 0.3s;
+            box-shadow: 2px 0 8px rgba(0,0,0,0.2);
+            z-index: 1000;
         }
-        .project-card h3 {
-            font-size: 1.3em;
-            color: #60a5fa;
-            margin-bottom: 8px;
-        }
-        .project-card p {
-            color: #94a3b8;
-            line-height: 1.6;
-            margin-bottom: 12px;
-        }
-        .project-card .tags {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-bottom: 12px;
-        }
-        .tag {
-            background: rgba(59, 130, 246, 0.15);
-            color: #60a5fa;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.85em;
-        }
-        .project-link {
-            color: #3b82f6;
+
+        .sidebar a {
+            display: block;
+            padding: 14px 20px;
             text-decoration: none;
-            font-weight: 600;
+            color: var(--text);
+            border-bottom: 1px solid #ccc;
         }
-        .project-link:hover { text-decoration: underline; }
 
-        /* Skills */
-        .skills {
+        .sidebar a:hover {
+            background: var(--placeholder-bg);
+        }
+
+        /* Screenshots */
+        .screenshot-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .placeholder {
+            width: 100%;
+            height: 160px;
+            background: var(--placeholder-bg);
+            border-radius: 6px;
             display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-bottom: 40px;
-        }
-        .skill-tag {
-            background: rgba(16, 185, 129, 0.15);
-            color: #34d399;
-            padding: 6px 16px;
-            border-radius: 20px;
-            font-size: 0.9em;
+            align-items: center;
+            justify-content: center;
+            color: #666;
+            font-size: 0.9rem;
+            font-style: italic;
         }
 
-        /* Contact */
-        .contact {
+        /* Back to Top */
+        #backToTop {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: var(--header-bg);
+            color: var(--header-text);
+            padding: 12px 16px;
+            border-radius: 50px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+            display: none;
+            z-index: 1200;
+        }
+
+        #backToTop:hover {
+            background: #0055aa;
+        }
+
+        footer {
             text-align: center;
-            padding: 40px 0;
+            padding: 20px;
+            margin-top: 40px;
+            color: #666;
         }
-        .contact a {
-            color: #3b82f6;
-            text-decoration: none;
-            font-size: 1.1em;
-            margin: 0 15px;
-        }
-        .contact a:hover { text-decoration: underline; }
-
-        /* Footer */
-        .footer {
-            text-align: center;
-            padding: 30px 0;
-            color: #475569;
-            font-size: 0.9em;
-            border-top: 1px solid rgba(255,255,255,0.05);
-        }
-
-        /* Privacy Policy section */
-        .legal {
-            background: rgba(255,255,255,0.03);
-            border-radius: 12px;
-            padding: 25px;
-            margin-bottom: 30px;
-            border: 1px solid rgba(255,255,255,0.05);
-        }
-        .legal h2 { font-size: 1.2em; color: #94a3b8; margin-bottom: 10px; }
-        .legal p { color: #64748b; line-height: 1.6; font-size: 0.9em; }
     </style>
 </head>
+
 <body>
-    <div class="container">
 
-        <!-- Header -->
-        <div class="header">
-            <h1>WenChung Minn</h1>
-            <p class="tagline">Structural Engineer & Python Developer</p>
-            <div class="divider"></div>
-        </div>
+<!-- Sidebar -->
+<button class="menu-btn" onclick="toggleSidebar()">☰ Menu</button>
 
-        <!-- About -->
-        <div class="about">
-            <p>
-                I am a structural engineer with expertise in steel and wood design for residential 
-                and commercial buildings. I build Python-based engineering tools that automate 
-                structural calculations following AISC, ASCE, and CBC design codes. My goal is to 
-                bridge the gap between engineering practice and modern software development.
-            </p>
-        </div>
+<div id="sidebar" class="sidebar">
+    <a href="#about">About</a>
+    <a href="#apps">Main Applications</a>
+    <a href="#screenshots">Screenshots</a>
+    <a href="#runonline">Run Online</a>
+    <a href="#windows">Windows Install</a>
+    <a href="#repo">Repository</a>
+    <a href="#author">Author</a>
+</div>
 
-        <!-- Skills -->
-        <h2 class="section-title">Skills & Expertise</h2>
-        <div class="skills">
-            <span class="skill-tag">Structural Engineering</span>
-            <span class="skill-tag">Python</span>
-            <span class="skill-tag">Steel Design (AISC)</span>
-            <span class="skill-tag">Wood Design (NDS)</span>
-            <span class="skill-tag">Seismic Analysis</span>
-            <span class="skill-tag">Kivy GUI</span>
-            <span class="skill-tag">NumPy</span>
-            <span class="skill-tag">Matplotlib</span>
-            <span class="skill-tag">ASCE 7-16</span>
-            <span class="skill-tag">CBC 2022</span>
-            <span class="skill-tag">LaTeX Reports</span>
-            <span class="skill-tag">AI Automation</span>
-        </div>
+<header>
+    <button class="dark-toggle" onclick="toggleDarkMode()">🌙 Dark Mode</button>
+    <h1>WM‑Engineering</h1>
+    <p>Structural Engineering Tools by Wen‑Chung Minn, P.E.</p>
+</header>
 
-        <!-- Projects -->
-        <h2 class="section-title">Projects</h2>
-        <div class="projects">
+<div class="container">
 
-            <div class="project-card">
-                <h3>Wood & Steel Beam Design Tools</h3>
-                <p>
-                    Interactive structural engineering applications for beam analysis, steel moment 
-                    frame design, and detailed load calculations. Features seismic design per 
-                    AISC 341-16, interaction checks, RBS connection design, shear/moment diagrams, 
-                    and LaTeX report generation.
-                </p>
-                <div class="tags">
-                    <span class="tag">Python</span>
-                    <span class="tag">Kivy</span>
-                    <span class="tag">AISC 360-16</span>
-                    <span class="tag">ASCE 7-16</span>
-                    <span class="tag">Seismic Design</span>
-                </div>
-                <a class="project-link" href="https://github.com/wminn1034-stack/Wood-beam-design" target="_blank">
-                    View on GitHub &rarr;
-                </a>
-            </div>
+    <h2 id="about">About This Project</h2>
+    <p>
+        WM‑Engineering is a collection of structural engineering analysis tools developed over
+        45 years of professional consulting practice. These applications support wood and steel
+        beam design, seismic moment frame analysis, shear wall evaluation, and detailed load
+        calculations following AISC, ASCE 7, CBC, and NDS standards.
+    </p>
 
-            <div class="project-card">
-                <h3>TikTok Automation Pipeline</h3>
-                <p>
-                    Automated content creation and posting pipeline that generates AI avatar videos 
-                    using HeyGen API and uploads them to TikTok via the Content Posting API. 
-                    End-to-end automation from script to published video.
-                </p>
-                <div class="tags">
-                    <span class="tag">Python</span>
-                    <span class="tag">HeyGen API</span>
-                    <span class="tag">TikTok API</span>
-                    <span class="tag">Automation</span>
-                </div>
-                <a class="project-link" href="https://github.com/wminn1034-stack" target="_blank">
-                    View on GitHub &rarr;
-                </a>
-            </div>
+    <h2 id="apps">Main Applications</h2>
+    <ul>
+        <li><strong>Steel Moment Frame App</strong> — AISC seismic design, RBS logic, deflection checks</li>
+        <li><strong>Wood Beam Design App</strong> — NDS‑based beam sizing with Kivy GUI</li>
+        <li><strong>Beam Analysis</strong> — reactions, shear/moment diagrams, zero‑shear detection</li>
+        <li><strong>Beam Calculator (Graph)</strong> — visual diagrams with Matplotlib</li>
+        <li><strong>Beam Calculator (No Graph)</strong> — lightweight calculation tool</li>
+    </ul>
 
-        </div>
+    <h2 id="screenshots">Screenshots</h2>
+    <p>Upload screenshots to <code>docs/screenshots/</code>.</p>
 
-        <!-- Contact -->
-        <div class="contact">
-            <h2 class="section-title">Contact</h2>
-            <br><br>
-            <a href="https://github.com/wminn1034-stack" target="_blank">GitHub</a>
-            <a href="https://www.tiktok.com/@wminn1034" target="_blank">TikTok</a>
-        </div>
-
-        <!-- Privacy Policy (needed for TikTok developer app) -->
-        <div class="legal" id="privacy">
-            <h2>Privacy Policy</h2>
-            <p>
-                This website and its associated applications do not collect, store, or share any 
-                personal user data. When using our TikTok integration, we only access the minimum 
-                required permissions (video publishing) as authorized by the user through TikTok's 
-                official OAuth flow. No user data is stored on our servers. Users can revoke access 
-                at any time through their TikTok account settings.
-            </p>
-        </div>
-
-        <div class="legal" id="terms">
-            <h2>Terms of Service</h2>
-            <p>
-                By using our applications and tools, you agree to use them responsibly and in 
-                compliance with all applicable laws and platform guidelines. Our tools are provided 
-                "as is" without warranty of any kind. We are not responsible for any content created 
-                or published using our automation tools. Users are solely responsible for ensuring 
-                their content complies with TikTok's community guidelines and terms of service.
-            </p>
-        </div>
-
-        <!-- Footer -->
-        <div class="footer">
-            <p>&copy; 2026 WenChung Minn. Built for engineers who code.</p>
-        </div>
-
+    <div class="screenshot-grid">
+        <div class="placeholder">screenshot1.png</div>
+        <div class="placeholder">screenshot2.png</div>
+        <div class="placeholder">screenshot3.png</div>
     </div>
+
+    <h2 id="runonline">Run Online</h2>
+    <a href="https://replit.com/new" target="_blank"
+       style="display:inline-block;background:#00aaff;color:white;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:bold;">
+        ▶ Run on Replit
+    </a>
+
+    <h2 id="windows">Windows Installation</h2>
+    <ul>
+        <li>Install Python 3.8+ (check “Add Python to PATH”)</li>
+        <li>Verify with <code>python --version</code></li>
+        <li>Install dependencies: <code>pip install -r requirements.txt</code></li>
+        <li>Run apps from the <code>apps/</code> folder</li>
+    </ul>
+
+    <h2 id="repo">Repository</h2>
+    <p>
+        GitHub Repository:<br>
+        <a href="https://github.com/infan8345/WM-Engineering" target="_blank">
+            github.com/infan8345/WM‑Engineering
+        </a>
+    </p>
+
+    <h2 id="author">Author</h2>
+    <p>
+        <strong>Wen‑Chung Minn, P.E.</strong><br>
+        Structural Consulting Engineer — Los Angeles, CA<br>
+        45 years of experience in residential and commercial structural design.
+    </p>
+
+</div>
+
+<button id="backToTop" onclick="scrollToTop()">↑ Top</button>
+
+<footer>
+    © 2026 WM‑Engineering — All Rights Reserved
+</footer>
+
+<script>
+    function toggleSidebar() {
+        const sidebar = document.getElementById("sidebar");
+        sidebar.style.left = (sidebar.style.left === "0px") ? "-260px" : "0px";
+    }
+
+    function toggleDarkMode() {
+        document.body.classList.toggle('dark');
+        localStorage.setItem('darkMode', document.body.classList.contains('dark'));
+    }
+
+    if (localStorage.getItem('darkMode') === 'true') {
+        document.body.classList.add('dark');
+    }
+
+    window.addEventListener("scroll", function() {
+        const btn = document.getElementById("backToTop");
+        btn.style.display = window.scrollY > 300 ? "block" : "none";
+    });
+
+    function scrollToTop() {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+</script>
+
 </body>
 </html>
