@@ -121,18 +121,6 @@
             gap: 20px;
             margin-top: 20px;
         }
-        .placeholder {
-            width: 100%;
-            height: 160px;
-            background: var(--placeholder-bg);
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #666;
-            font-size: 0.9rem;
-            font-style: italic;
-        }
 
         /* Back to Top */
         #backToTop {
@@ -208,9 +196,9 @@
     <p>Upload screenshots to <code>docs/screenshots/</code>.</p>
 
     <div class="screenshot-grid">
-        <div class="placeholder">screenshot1.png</div>
-        <div class="placeholder">screenshot2.png</div>
-        <div class="placeholder">screenshot3.png</div>
+        <img src="docs/screenshots/screenshot-1776272502226.png"
+             alt="Screenshot 1"
+             style="width:100%; border-radius:6px; border:1px solid #ccc;">
     </div>
 
     <h2 id="runonline">Run Online</h2>
@@ -245,18 +233,6 @@
 </div>
 
 <button id="backToTop" onclick="scrollToTop()">↑ Top</button>
-    <style>
-   ... all your CSS ...
-   /* Screenshots */
-   .screenshot-grid { ... }
-   .placeholder { ... }
-
-   /* Back to Top */
-   #backToTop { ... }
-</style>
-
-<!-- THEN your page content starts -->
-
 
 <footer>
     © 2026 WM‑Engineering — All Rights Reserved
