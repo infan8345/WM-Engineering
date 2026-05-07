@@ -205,6 +205,52 @@
              style="width:100%; border-radius:6px; border:1px solid #ccc;">  
         
     </div>
+    <h2 id="retainingwall">Retaining Wall Design & Analysis</h2>
+
+<p>
+    This retaining wall design module performs a full ASD analysis following standard
+    geotechnical and structural engineering practice. The tool evaluates sliding,
+    overturning, bearing pressure, stem reinforcement, keyway contribution, and
+    overall stability under lateral earth pressure.
+</p>
+
+<h3>Design Inputs</h3>
+<ul>
+    <li>Wall height (H)</li>
+    <li>Equivalent fluid pressure (EFP)</li>
+    <li>Soil bearing capacity (q_allow)</li>
+    <li>Friction coefficient (μ)</li>
+    <li>Allowable passive pressure</li>
+    <li>Concrete strength (f'c)</li>
+    <li>Steel allowable stress (F_s)</li>
+    <li>Footing geometry (toe, heel, thickness)</li>
+    <li>Keyway dimensions</li>
+</ul>
+
+<h3>Analysis Performed</h3>
+<ul>
+    <li><strong>Sliding Check:</strong> compares resisting friction + passive pressure vs. lateral soil force</li>
+    <li><strong>Overturning Check:</strong> evaluates stabilizing vs. overturning moments about the toe</li>
+    <li><strong>Bearing Pressure:</strong> computes max/min soil pressure using eccentricity (e = M/W)</li>
+    <li><strong>Stem Reinforcement:</strong> calculates required vertical steel based on bending moment</li>
+    <li><strong>Footing Reinforcement:</strong> heel and toe bending checks, minimum #4 bars included</li>
+    <li><strong>Keyway Contribution:</strong> adds shear resistance and improves sliding stability</li>
+</ul>
+
+<h3>Output Summary</h3>
+<ul>
+    <li>Sliding safety factor</li>
+    <li>Overturning safety factor</li>
+    <li>Maximum soil pressure vs. allowable</li>
+    <li>Required stem reinforcement (#4 bars minimum)</li>
+    <li>Required footing reinforcement</li>
+    <li>Graphical section view (as shown in Screenshot 2)</li>
+</ul>
+
+<p>
+        The retaining wall graphic (Shot2) shows the stem, footing, keyway, L-bars, block pattern,
+        and backfill slope, providing a clear drafting-style representation of the final design.
+    </p>
 
 
     <h2 id="runonline">Run Online</h2>
