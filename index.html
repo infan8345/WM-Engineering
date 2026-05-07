@@ -1,294 +1,179 @@
 <!DOCTYPE html>
-
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WM‑Engineering | Structural Engineering Tools</title>
 
-```
-<style>
-    :root {
-        --bg: #f5f5f5;
-        --text: #222;
-        --card-bg: #ffffff;
-        --header-bg: #003366;
-        --header-text: #ffffff;
-        --placeholder-bg: #e0e0e0;
-        --border-color: #ccc;
-    }
+    <style>
+        :root {
+            --bg: #f5f5f5;
+            --text: #222;
+            --card-bg: #ffffff;
+            --header-bg: #003366;
+            --header-text: #ffffff;
+            --placeholder-bg: #e0e0e0;
+            --border-color: #ccc;
+        }
 
-    body.dark {
-        --bg: #1e1e1e;
-        --text: #e6e6e6;
-        --card-bg: #2a2a2a;
-        --header-bg: #001a33;
-        --header-text: #ffffff;
-        --placeholder-bg: #444;
-        --border-color: #555;
-    }
+        body.dark {
+            --bg: #1e1e1e;
+            --text: #e6e6e6;
+            --card-bg: #2a2a2a;
+            --header-bg: #001a33;
+            --header-text: #ffffff;
+            --placeholder-bg: #444;
+            --border-color: #555;
+        }
 
-    body {
-        font-family: Arial, sans-serif;
-        margin: 0;
-        padding: 0;
-        background: var(--bg);
-        color: var(--text);
-        transition: background 0.3s, color 0.3s;
-    }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: var(--bg);
+            color: var(--text);
+            transition: background 0.3s, color 0.3s;
+        }
 
-    /* Header */
-    header {
-        background: var(--header-bg);
-        color: var(--header-text);
-        padding: 40px 20px;
-        text-align: center;
-        position: relative;
-    }
+        header {
+            background: var(--header-bg);
+            color: var(--header-text);
+            padding: 40px 20px;
+            text-align: center;
+            position: relative;
+        }
 
-    h1 { margin: 0; font-size: 2.4rem; }
-    h2 { color: var(--header-bg); margin-top: 40px; }
-    body.dark h2 { color: #66aaff; }
+        h1 { margin: 0; font-size: 2.4rem; }
+        h2 { color: var(--header-bg); margin-top: 40px; }
+        body.dark h2 { color: #66aaff; }
 
-    /* Container */
-    .container {
-        max-width: 900px;
-        margin: 40px auto;
-        background: var(--card-bg);
-        padding: 30px;
-        border-radius: 8px;
-        box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        transition: background 0.3s;
-    }
+        .container {
+            max-width: 900px;
+            margin: 40px auto;
+            background: var(--card-bg);
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
 
-    ul { line-height: 1.7; }
-    a { color: var(--header-bg); }
+        .dark-toggle {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: var(--card-bg);
+            color: var(--text);
+            border: 1px solid #888;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+        }
 
-    /* Dark Mode Button */
-    .dark-toggle {
-        position: absolute;
-        top: 20px;
-        right: 20px;
-        background: var(--card-bg);
-        color: var(--text);
-        border: 1px solid #888;
-        padding: 6px 12px;
-        border-radius: 6px;
-        cursor: pointer;
-        font-size: 0.9rem;
-    }
+        .menu-btn {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: var(--card-bg);
+            color: var(--text);
+            border: 1px solid #888;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+        }
 
-    /* Sidebar */
-    .menu-btn {
-        position: absolute;
-        top: 20px;
-        left: 20px;
-        background: var(--card-bg);
-        color: var(--text);
-        border: 1px solid #888;
-        padding: 6px 12px;
-        border-radius: 6px;
-        cursor: pointer;
-        z-index: 1100;
-    }
+        .sidebar {
+            position: fixed;
+            top: 0;
+            left: -260px;
+            width: 240px;
+            height: 100%;
+            background: var(--card-bg);
+            padding: 20px;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.2);
+            transition: left 0.3s;
+        }
 
-    .sidebar {
-        height: 100%;
-        width: 260px;
-        position: fixed;
-        top: 0;
-        left: -260px;
-        background: var(--card-bg);
-        color: var(--text);
-        padding-top: 60px;
-        transition: 0.3s;
-        box-shadow: 2px 0 8px rgba(0,0,0,0.2);
-        z-index: 1000;
-    }
+        .sidebar.open { left: 0; }
 
-    .sidebar a {
-        display: block;
-        padding: 14px 20px;
-        text-decoration: none;
-        color: var(--text);
-        border-bottom: 1px solid #ccc;
-    }
+        .sidebar a {
+            display: block;
+            padding: 10px 0;
+            color: var(--text);
+            text-decoration: none;
+            border-bottom: 1px solid var(--border-color);
+        }
 
-    .sidebar a:hover {
-        background: var(--placeholder-bg);
-    }
+        .screenshot-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
 
-    /* ===== Screenshots (NEW CSS) ===== */
-    .screenshot-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-        gap: 20px;
-        margin-top: 20px;
-    }
-
-    .screenshot-grid img {
-        width: 100%;
-        height: auto;
-        border-radius: 8px;
-        border: 1px solid var(--border-color);
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        transition: transform 0.3s ease, box-shadow 0.3s ease;
-        cursor: pointer;
-        display: block;
-    }
-
-    .screenshot-grid img:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 6px 16px rgba(0,0,0,0.2);
-    }
-
-    /* Back to Top */
-    #backToTop {
-        position: fixed;
-        bottom: 30px;
-        right: 30px;
-        background: var(--header-bg);
-        color: var(--header-text);
-        padding: 12px 16px;
-        border-radius: 50px;
-        font-size: 0.9rem;
-        cursor: pointer;
-        border: none;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.25);
-        display: none;
-        z-index: 1200;
-    }
-
-    #backToTop:hover {
-        background: #0055aa;
-    }
-
-    footer {
-        text-align: center;
-        padding: 20px;
-        margin-top: 40px;
-        color: #666;
-    }
-</style>
-```
-
+        footer {
+            text-align: center;
+            padding: 20px;
+            margin-top: 40px;
+            color: #777;
+        }
+    </style>
 </head>
 
 <body>
 
-<!-- Sidebar -->
-
-<button class="menu-btn" onclick="toggleSidebar()">☰ Menu</button>
-
-<div id="sidebar" class="sidebar">
-    <a href="#about">About</a>
-    <a href="#apps">Main Applications</a>
-    <a href="#screenshots">Screenshots</a>
-    <a href="#runonline">Run Online</a>
-    <a href="#windows">Windows Install</a>
-    <a href="#repo">Repository</a>
-    <a href="#author">Author</a>
-</div>
-
 <header>
-    <button class="dark-toggle" onclick="toggleDarkMode()">🌙 Dark Mode</button>
+    <button class="menu-btn" onclick="toggleMenu()">☰ Menu</button>
+    <button class="dark-toggle" onclick="toggleDark()">🌙 Dark</button>
     <h1>WM‑Engineering</h1>
-    <p>Structural Engineering Tools by Wen‑Chung Minn, P.E.</p>
 </header>
+
+<div class="sidebar" id="sidebar">
+    <a href="#screenshots">Screenshots</a>
+    <a href="#wood">Wood Beam Design</a>
+    <a href="#retaining">Retaining Wall Design</a>
+</div>
 
 <div class="container">
 
-```
-<h2 id="about">About This Project</h2>
-<p>
-    WM‑Engineering is a collection of structural engineering analysis tools developed over
-    45 years of professional consulting practice. These applications support wood and steel
-    beam design, seismic moment frame analysis, shear wall evaluation, and detailed load
-    calculations following AISC, ASCE 7, CBC, and NDS standards.
-</p>
+    <h2 id="screenshots">Screenshots</h2>
+    <p>Upload screenshots to <code>docs/screenshots/</code>.</p>
 
-<h2 id="apps">Main Applications</h2>
-<ul>
-    <li><strong>Steel Moment Frame App</strong> — AISC seismic design, RBS logic, deflection checks</li>
-    <li><strong>Wood Beam Design App</strong> — NDS‑based beam sizing with Kivy GUI</li>
-    <li><strong>Beam Analysis</strong> — reactions, shear/moment diagrams, zero‑shear detection</li>
-    <li><strong>Beam Calculator (Graph)</strong> — visual diagrams with Matplotlib</li>
-    <li><strong>Beam Calculator (No Graph)</strong> — lightweight calculation tool</li>
-</ul>
+    <div class="screenshot-grid">
+        <img src="docs/screenshots/screenshot-1776272502226.png"
+             alt="Screenshot 1"
+             style="width:100%; border-radius:6px; border:1px solid #ccc;">
 
-<h2 id="screenshots">Screenshots</h2>
-<p>Upload screenshots to <code>docs/screenshots/</code>.</p>
+        <img src="docs/screenshots/screenshot-1778123077177.png"
+             alt="Screenshot 2"
+             style="width:100%; border-radius:6px; border:1px solid #ccc;">
+    </div>
 
-<div class="screenshot-grid">
-    <img src="WM-Engineering/docs/screenshots/screenshot-1776272502226.png"
-         alt="Wood Beam Design">
+    <h2 id="wood">Wood Beam Design</h2>
+    <p>Python-based beam calculator for structural engineering.</p>
 
-    <img src="WM-Engineering/docs/screenshots/screenshot-1778123077177.png"
-         alt="Retaining Wall Design">
-</div>
-
-
-<h2 id="runonline">Run Online</h2>
-<a href="https://replit.com/new" target="_blank"
-   style="display:inline-block;background:#00aaff;color:white;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:bold;">
-    ▶ Run on Replit
-</a>
-
-<h2 id="windows">Windows Installation</h2>
-<ul>
-    <li>Install Python 3.8+ (check “Add Python to PATH”)</li>
-    <li>Verify with <code>python --version</code></li>
-    <li>Install dependencies: <code>pip install -r requirements.txt</code></li>
-    <li>Run apps from the <code>apps/</code> folder</li>
-</ul>
-
-<h2 id="repo">Repository</h2>
-<p>
-    GitHub Repository:<br>
-    <a href="https://github.com/infan8345/WM-Engineering" target="_blank">
-        github.com/infan8345/WM‑Engineering
-    </a>
-</p>
-
-<h2 id="author">Author</h2>
-<p>
-    <strong>Wen‑Chung Minn, P.E.</strong><br>
-    Structural Consulting Engineer — Los Angeles, CA<br>
-    45 years of experience in residential and commercial structural design.
-</p>
-```
+    <h2 id="retaining">Retaining Wall Design</h2>
+    <p>Full retaining wall design workflow including:</p>
+    <ul>
+        <li>Sliding</li>
+        <li>Overturning</li>
+        <li>Bearing pressure</li>
+        <li>Passive resistance</li>
+        <li>Seismic checks</li>
+    </ul>
 
 </div>
-
-<button id="backToTop" onclick="scrollToTop()">↑ Top</button>
 
 <footer>
-    © 2026 WM‑Engineering — All Rights Reserved
+    © 2026 WM‑Engineering — Structural Engineering Tools
 </footer>
 
 <script>
-    function toggleSidebar() {
-        const sidebar = document.getElementById("sidebar");
-        sidebar.style.left = (sidebar.style.left === "0px") ? "-260px" : "0px";
-    }
+function toggleMenu() {
+    document.getElementById("sidebar").classList.toggle("open");
+}
 
-    function toggleDarkMode() {
-        document.body.classList.toggle('dark');
-        localStorage.setItem('darkMode', document.body.classList.contains('dark'));
-    }
-
-    if (localStorage.getItem('darkMode') === 'true') {
-        document.body.classList.add('dark');
-    }
-
-    window.addEventListener("scroll", function() {
-        const btn = document.getElementById("backToTop");
-        btn.style.display = window.scrollY > 300 ? "block" : "none";
-    });
-
-    function scrollToTop() {
-        window.scrollTo({ top: 0, behavior: "smooth" });
-    }
+function toggleDark() {
+    document.body.classList.toggle("dark");
+}
 </script>
 
 </body>
