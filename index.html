@@ -48,7 +48,7 @@
         body.dark h2 { color: #66aaff; }
 
         .container {
-            max-width: 900px;
+            max-width: 1200px;   /* WIDER CONTENT AREA */
             margin: 40px auto;
             background: var(--card-bg);
             padding: 30px;
@@ -129,7 +129,9 @@
 <div class="sidebar" id="sidebar">
     <a href="#screenshots">Screenshots</a>
     <a href="#wood">Wood Beam Design</a>
-    <a href="#retaining">Retaining Wall Design</a>
+    <a href="#retaining">Retaining Wall</a>
+    <a href="#slab">Concrete Slab</a>
+    <a href="#steel">Steel Beam</a>
 </div>
 
 <div class="container">
@@ -147,9 +149,17 @@
              style="width:100%; border-radius:6px; border:1px solid #ccc;">
     </div>
 
+    <!-- WOOD BEAM -->
     <h2 id="wood">Wood Beam Design</h2>
-    <p>Python-based beam calculator for structural engineering.</p>
+    <p>Python-based beam calculator for residential and commercial applications.</p>
+    <ul>
+        <li>Uniform and point loads</li>
+        <li>Deflection checks</li>
+        <li>Allowable stress design</li>
+        <li>Multiple span capability</li>
+    </ul>
 
+    <!-- RETAINING WALL -->
     <h2 id="retaining">Retaining Wall Design</h2>
     <p>Full retaining wall design workflow including:</p>
     <ul>
@@ -159,32 +169,26 @@
         <li>Passive resistance</li>
         <li>Seismic checks</li>
     </ul>
-    <h2 id="steel">Steel Beam & Girder Design</h2>
-<p>Design of composite and non-composite steel beams, including:</p>
-<ul>
-    <li>Flexural strength checks</li>
-    <li>Shear capacity</li>
-    <li>Deflection limits</li>
-    <li>Serviceability review</li>
-</ul>
 
-<h2 id="slab">Concrete Slab Design</h2>
-<p>One-way and two-way slab design with:</p>
-<ul>
-    <li>Factored load combinations</li>
-    <li>Flexural reinforcement sizing</li>
-    <li>Punching shear checks</li>
-    <li>Serviceability and crack control</li>
-</ul>
+    <!-- SLAB -->
+    <h2 id="slab">Concrete Slab Design</h2>
+    <p>One-way and two-way slab design including:</p>
+    <ul>
+        <li>Factored load combinations</li>
+        <li>Flexural reinforcement sizing</li>
+        <li>Punching shear verification</li>
+        <li>Serviceability and crack control</li>
+    </ul>
 
-<h2 id="connection">Steel Connection Design</h2>
-<p>Design of typical steel connections:</p>
-<ul>
-    <li>Shear tab and end-plate connections</li>
-    <li>Moment connections</li>
-    <li>Base plates</li>
-    <li>Anchor bolt design</li>
-</ul>
+    <!-- STEEL BEAM -->
+    <h2 id="steel">Steel Beam Design</h2>
+    <p>Composite and non‑composite steel beam design:</p>
+    <ul>
+        <li>Flexural strength</li>
+        <li>Shear capacity</li>
+        <li>Deflection limits</li>
+        <li>Load combinations</li>
+    </ul>
 
 </div>
 
@@ -196,7 +200,6 @@
 function toggleMenu() {
     document.getElementById("sidebar").classList.toggle("open");
 }
-
 function toggleDark() {
     document.body.classList.toggle("dark");
 }
