@@ -41,4 +41,7 @@ V_w = w * span_ft / 2  # lb
 # -----------------------------
 # POINT LOAD RESULTS
 # -----------------------------
-M_p = P * a_ft * (span
+M_p = P * a_ft * (span_ft - a_ft) / span_ft  # ft-lb
+M_p_in = M_p * 12
+
+V_p = P / 2
