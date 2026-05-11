@@ -753,7 +753,9 @@ if st.button("🔄 Reset All Inputs"):
     initialize_block_and_rebar()
 
     # Keep the app stable
-    st.session_state.initialized = True
-
+    if st.button("🔄 Reset All Inputs"):
+    # Only clear YOUR variables...
+    ...
     print("All inputs and internal variables have been reset.")
+
 
