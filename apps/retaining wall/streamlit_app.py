@@ -733,6 +733,29 @@ if col5.button("Footing Moment (KEY‑2)"):
 
 if col6.button("Point Load Check (KEY‑3)"):
     gosub_1700()
+if st.button("🔄 Reset All Inputs"):
+    # Only clear YOUR variables, not Streamlit's internal widget state
+    keys_to_clear = [
+        "T","D","C","A","P1","P2","P3s","P4s","P5s","H","H1","H2","H3","H4",
+        "L","L1","L2","P","P4","S1","S2","C9","Y","C1","Cw","T1","Dval","F",
+        "F1","F2","N1","N2","G","W1","W2","W3","W4","W5","W6","W7","W8",
+        "M1","M2","M3","M4","M5","M6","M7","M8","X","S","E","E1","E2","K1",
+        "Areq","A2","P1s","K","J","A1","S9","D9","R","P3","P9","X9","B","M",
+        "I1","I2","TABLE_ROWS","KERN_MODE"
+    ]
+
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+
+    # Reinitialize your program variables
+    initialize_globals()
+    initialize_block_and_rebar()
+
+    # Keep the app stable
+    st.session_state.initialized = True
+
+    print("All inputs and internal variables have been reset.")
 
 st.markdown("---")
 if st.button("🔄 Reset All Inputs"):
