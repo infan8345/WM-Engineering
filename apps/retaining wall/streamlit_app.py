@@ -1,13 +1,29 @@
 import streamlit as st
 
 # ============================================================
-#  RETAINING WALL PROGRAM — STREAMLIT VERSION
-#  Option A2 (step-by-step) + S1 (simple buttons) + G1 (session_state)
+#  RETAINING WALL PROGRAM — STREAMLIT VERSION (FINAL PATCHED)
+#  A2 (step-by-step) + S1 (simple buttons) + G1 (session_state)
 #  PDF generator removed (R2)
-#  All logic preserved exactly as original BASIC-style program
 # ============================================================
 
-st.set_page_config(page_title="Retaining Wall Program", layout="wide")
+st.set_page_config(
+    page_title="Retaining Wall Program",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# Optional: keep sidebar width stable
+st.markdown(
+    """
+    <style>
+    [data-testid="stSidebar"] {
+        min-width: 350px;
+        max-width: 350px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ------------------------------------------------------------
 # Helper: initialize a variable in session_state if missing
@@ -53,7 +69,41 @@ def initialize_globals():
     for name, value in names_defaults.items():
         init(name, value)
 
-initialize_globals()
+# ------------------------------------------------------------
+# Initialize block sizes and rebar areas
+# ------------------------------------------------------------
+def initialize_block_and_rebar():
+    ss = st.session_state
+
+    ss.D[1] = 5.5
+    ss.D[2] = 9.5
+    ss.D[3] = 13.5
+    ss.D[4] = 0.0
+
+    ss.A[1] = 0.10
+    ss.A[2] = 0.15
+    ss.A[3] = 0.23
+    ss.A[4] = 0.30
+    ss.A[5] = 0.47
+    ss.A[6] = 0.66
+    ss.A[7] = 0.90
+
+    ss.P1 = " (IN)"
+    ss.P2 = " (FT)"
+    ss.P3s = " (PSF)"
+    ss.P4s = " (LB)"
+    ss.P5s = " (LB/CF)"
+
+# ------------------------------------------------------------
+# One-time initialization guard
+# ------------------------------------------------------------
+if "initialized" not in st.session_state:
+    st.session_state.initialized = False
+
+if not st.session_state.initialized:
+    initialize_globals()
+    initialize_block_and_rebar()
+    st.session_state.initialized = True
 
 # ------------------------------------------------------------
 # Replace print() with Streamlit text output
@@ -65,23 +115,12 @@ def print(*args, **kwargs):
     st.text(text)
 
 # ------------------------------------------------------------
-# Replace input() with Streamlit widgets
-# ------------------------------------------------------------
-def input_number(label, key, default=0.0):
-    return st.number_input(label, value=st.session_state.get(key, default), key=key)
-
-def input_text(label, key, default=""):
-    return st.text_input(label, value=st.session_state.get(key, default), key=key)
-
-def input_select(label, key, options, default_index=0):
-    return st.selectbox(label, options, index=default_index, key=key)
-
-# ------------------------------------------------------------
 # gosub_1580 — Program Title
 # ------------------------------------------------------------
 def gosub_1580():
     print("\n\n\nRETAINING WALL PROGRAM")
     print("REV. 2-12-84 (Python/Streamlit conversion)")
+
 # ------------------------------------------------------------
 # gosub_140 — INPUT BLOCK (Streamlit sidebar)
 # ------------------------------------------------------------
@@ -97,26 +136,19 @@ def gosub_140():
 
         ss.H1 = st.number_input("RETAINING WALL HEIGHT (FT)", value=ss.H1)
 
-        # EQUIVALENT FLUID PRESSURE
         ss.P = st.number_input("EQUIV. FLUID PRESSURE (#/CF)", value=ss.P if ss.P else 30.0)
 
-        # ALLOWABLE SOIL BEARING
         ss.S2 = st.number_input("ALLOWABLE SOIL BEARING (PSF)", value=ss.S2 if ss.S2 else 1000.0)
 
-        # FRICTION COEFFICIENT
         ss.C9 = st.number_input("FRICTION COEFF", value=ss.C9 if ss.C9 else 0.4)
 
-        # ALLOWABLE PASSIVE
         ss.P4 = st.number_input("ALLOWABLE PASSIVE (PSF)", value=ss.P4 if ss.P4 else 300.0)
 
-        # SURCHARGE
         ss.S1 = st.number_input("SURCHARGE (FT)", value=ss.S1)
 
-        # CONCRETE WALL?
         ss.Cw = st.selectbox("CONC. WALL (0=Masonry, 1=Concrete)", [0, 1], index=ss.Cw)
 
         if ss.Cw == 0:
-            # Masonry branch
             I = st.selectbox("CONT. INSPECTION (0 OR 1)", [0, 1])
             if I == 1:
                 ss.N1 = 20
@@ -134,7 +166,6 @@ def gosub_140():
                 ss.D[3] = 0.0
 
         else:
-            # Concrete branch
             ss.F = st.number_input("CONCRETE F'C (PSI)", value=ss.F if ss.F else 2000.0)
             ss.F2 = 0.45 * ss.F
             ss.N2 = int(29000 / (57 * (ss.F ** 0.5)))
@@ -142,20 +173,15 @@ def gosub_140():
             I = st.number_input("WALL T (IN)", value=8.0)
             ss.Dval = I - 2.5
 
-        # STEEL ALLOWABLE
         ss.Y = st.number_input("STEEL ALLOWABLE (KSI)", value=ss.Y if ss.Y else 20.0)
 
-        # SLAB ON GRADE
         ss.C1 = st.selectbox("SLAB ON GRADE (0 OR 1)", [0, 1], index=ss.C1)
 
-        # WALL HEIGHT INCREMENT
         H2_in = st.number_input("WALL HEIGHT INCREMENT (IN)", value=96.0)
         ss.H2 = H2_in / 12.0
 
-        # TOE
         ss.E = st.number_input("TOE (IN)", value=ss.E)
 
-        # ECCENTRICITY MODE
         ss.KERN_MODE = st.selectbox(
             "ECCENTRICITY MODE",
             ["ALLOW OUTSIDE KERN (1)", "FORCE INSIDE KERN (2)"],
@@ -163,13 +189,11 @@ def gosub_140():
         )
         ss.KERN_MODE = 1 if ss.KERN_MODE.startswith("ALLOW") else 2
 
-
 # ------------------------------------------------------------
-# gosub_5000 — placeholder (original program had no logic here)
+# gosub_5000 — placeholder
 # ------------------------------------------------------------
 def gosub_5000():
     pass
-
 
 # ------------------------------------------------------------
 # gosub_790 — TABLE HEADER
@@ -187,7 +211,6 @@ def gosub_790():
         f"{'WALL':>7}"
     )
     print("-" * 86)
-
 
 # ------------------------------------------------------------
 # gosub_670 — TABLE ROW PRINT
@@ -232,7 +255,6 @@ def gosub_670():
         ss.TABLE_ROWS.append(row)
         print(row)
 
-
 # ------------------------------------------------------------
 # gosub_print_header — prints design parameters + table header
 # ------------------------------------------------------------
@@ -271,11 +293,60 @@ def gosub_print_header():
     print()
 
     gosub_790()
+
 # ------------------------------------------------------------
-# gosub_510 — STEEL AREA CALC
+# gosub_1210 — "More Print" (KEY-1)
+# ------------------------------------------------------------
+def gosub_1210():
+    ss = st.session_state
+
+    print("\n  RETAINING WALL DESIGN\n")
+    print("    WALL TYPE -", ss.T1)
+
+    if ss.T1 == 4:
+        print("    WALL FTG. IS ON THE SAME SIDE OF RET. EARTH")
+        print("    FLUSH WALL FACE IS ON THE SAME SIDE OF RET. EARTH")
+        if ss.L2 != 0:
+            print(f"    GROUND SLOPE {ss.L2:.2f} : 1")
+    elif ss.T1 == 2:
+        print("    WALL FTG. IS ON THE OPP. SIDE OF RET. EARTH")
+        print("    FLUSH WALL FACE IS ON THE SAME SIDE OF RET. EARTH")
+    else:
+        print("    WALL FTG. IS ON THE OPP. SIDE OF RET. EARTH")
+        print("    FLUSH WALL FACE IS ON THE OPP. SIDE OF RET. EARTH")
+
+    print()
+    print(f"    WALL HEIGHT            = {ss.H1:8.2f}{ss.P2}")
+    print(f"    EQUIV. FLUID PRESSURE  = {ss.P:8.2f}{ss.P5s}")
+    print(f"    ALLOWABLE PASSIVE      = {ss.P4:8.2f}{ss.P5s}")
+    print(f"    COEFF. OF FRICTION     = {ss.C9:8.2f}")
+    if ss.S1 != 0:
+        print(f"    SURCHARGE              = {ss.S1:8.2f}{ss.P2}")
+    if ss.E != 0:
+        print(f"    TOE                    = {ss.E:8.2f}{ss.P1}")
+    print(f"    ALLOWABLE SOIL BEARING = {ss.S2:8.2f}{ss.P3s}")
+    print(f"    ALLOWABLE STL. STRESS  = {ss.Y:8.2f} (KSI)")
+
+    kern_label = "ALLOW OUTSIDE KERN" if ss.KERN_MODE == 1 else "FORCE INSIDE KERN"
+    print(f"    ECCENTRICITY MODE      : {kern_label}")
+    print()
+
+    gosub_790()
+    for row in ss.TABLE_ROWS:
+        print(row)
+
+    gosub_1400()
+
+# ------------------------------------------------------------
+# gosub_510 — STEEL AREA CALC (with protection)
 # ------------------------------------------------------------
 def gosub_510():
     ss = st.session_state
+
+    if ss.Dval == 0:
+        print("ERROR: Dval = 0 (wall thickness not set). Run Input Block first.")
+        ss.K1 = 0
+        return
 
     ss.Areq = ss.M * 12.0 / (ss.Y * 7.0 / 8.0 * ss.Dval * 1000.0)
     ss.A2 = ss.Areq
@@ -287,6 +358,12 @@ def gosub_510():
 
     ss.K = (2 * ss.P1s + ss.P1s * ss.P1s) ** 0.5 - ss.P1s
     ss.J = 1 - ss.K / 3.0
+
+    if ss.K == 0 or ss.J == 0:
+        print("ERROR: K or J = 0. Reinforcement calculation cannot proceed.")
+        ss.K1 = 0
+        return
+
     ss.F = ss.M * 2.0 / (ss.K * ss.J * ss.Dval * ss.Dval)
 
     ss.K1 = 0
@@ -298,7 +375,6 @@ def gosub_510():
         if ss.F < ss.F2:
             gosub_670()
             ss.K1 = 1
-
 
 # ------------------------------------------------------------
 # gosub_620 — BAR SELECTION
@@ -316,7 +392,6 @@ def gosub_620():
         gosub_510()
         if ss.K1 == 1:
             return
-
 
 # ------------------------------------------------------------
 # gosub_360 — MOMENT + STEEL LOOP
@@ -337,7 +412,6 @@ def gosub_360():
         ss.M = ss.S1 * ss.P * ss.H * ss.H / 2.0 + ss.P * ss.H ** 3 / 6.0
 
         if ss.Cw == 1:
-            # Concrete wall branch
             found = False
             while ss.Dval <= MAX_DVAL:
                 gosub_510()
@@ -358,7 +432,6 @@ def gosub_360():
                 break
 
         else:
-            # Masonry block wall branch
             if I > 4 or ss.D[I] == 0:
                 prev_I = max(1, I - 1)
                 ss.Dval = ss.D[prev_I] if ss.D[prev_I] != 0 else 5.5
@@ -404,7 +477,6 @@ def gosub_360():
                         break
                 continue
 
-
 # ------------------------------------------------------------
 # gosub_1205 — EARTH PRESSURE BLOCK
 # ------------------------------------------------------------
@@ -412,7 +484,6 @@ def gosub_1205():
     ss = st.session_state
     ss.P3 = (ss.S1 * ss.P * ss.H4 + ss.P * ss.H4 * ss.H4 / 2.0) / 3.0
     ss.M4 = ss.S1 * ss.P * ss.H4 * ss.H4 / 2.0 + ss.P * ss.H4 ** 3 / 6.0
-
 
 # ------------------------------------------------------------
 # gosub_830 — FOOTING DESIGN
@@ -490,7 +561,6 @@ def gosub_830():
             ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.P3 + ss.W7 + ss.W8
             ss.M6 = ss.M1 + ss.M2 + M3_local + ss.M5 + ss.M7 + ss.M8 - ss.M4
 
-        # Inner loop: adjust B until resultant is valid
         while True:
             ss.X = ss.M6 / ss.W6
 
@@ -523,6 +593,7 @@ def gosub_830():
                     continue
                 break
 
+        break
 
 # ------------------------------------------------------------
 # gosub_1400 — FOOTING SUMMARY
@@ -562,6 +633,7 @@ def gosub_1400():
         print(f"    S.F. OVERT. = {SF_OT:.2f}")
     else:
         print("    S.F. OVERT. = N/A")
+
 # ------------------------------------------------------------
 # gosub_1610 — MOMENT BREAKDOWN
 # ------------------------------------------------------------
@@ -579,7 +651,6 @@ def gosub_1610():
     print(f"    TOTAL    {ss.W6:10.2f}  {ss.M6:10.2f}")
     print()
 
-
 # ------------------------------------------------------------
 # gosub_1700 — POINT LOAD CHECK
 # ------------------------------------------------------------
@@ -589,7 +660,7 @@ def gosub_1700():
     st.sidebar.subheader("Point Load Check (KEY‑3)")
     ss.P9 = st.sidebar.number_input("P (LB)", value=ss.P9)
     ss.X9 = st.sidebar.number_input("X9 (FT)", value=ss.X9)
-    B_trial = st.sidebar.number_input("B (FTG WIDTH - FT)", value=ss.B)
+    B_trial = st.sidebar.number_input("B (FTG WIDTH - FT)", value=ss.B if ss.B else 0.0)
 
     Q1 = ss.W1 + B_trial * 150 + ss.P3 + ss.W4 + ss.W5 + ss.W7 + ss.W8 + ss.P9
     Q2 = ss.M1 + B_trial * 150 * B_trial / 2 + ss.M3 + ss.M4 + ss.M5 + ss.M7 + ss.M8 + ss.P9 * ss.X9
@@ -627,38 +698,8 @@ def gosub_1700():
     else:
         print("    S.F. OVERT. = N/A")
 
-
 # ------------------------------------------------------------
-# INITIALIZE BLOCK SIZES AND REBAR AREAS (A[] and D[])
-# ------------------------------------------------------------
-def initialize_block_and_rebar():
-    ss = st.session_state
-
-    ss.D[1] = 5.5
-    ss.D[2] = 9.5
-    ss.D[3] = 13.5
-    ss.D[4] = 0.0
-
-    ss.A[1] = 0.10
-    ss.A[2] = 0.15
-    ss.A[3] = 0.23
-    ss.A[4] = 0.30
-    ss.A[5] = 0.47
-    ss.A[6] = 0.66
-    ss.A[7] = 0.90
-
-    ss.P1 = " (IN)"
-    ss.P2 = " (FT)"
-    ss.P3s = " (PSF)"
-    ss.P4s = " (LB)"
-    ss.P5s = " (LB/CF)"
-
-
-initialize_block_and_rebar()
-
-
-# ------------------------------------------------------------
-# MAIN PAGE BUTTONS (S1 — simple buttons)
+# MAIN PAGE BUTTONS (S1 — simple buttons) + RESET
 # ------------------------------------------------------------
 st.title("Retaining Wall Program — Streamlit Version")
 
@@ -672,11 +713,17 @@ if col1.button("Run Input Block"):
     gosub_print_header()
 
 if col2.button("Run Moment Loop"):
-    gosub_360()
+    if st.session_state.Dval == 0 and st.session_state.Cw == 1:
+        print("ERROR: Run Input Block first (Dval not set).")
+    else:
+        gosub_360()
 
 if col3.button("Run Footing Design"):
-    gosub_830()
-    gosub_1400()
+    if st.session_state.G == 0:
+        print("ERROR: Run Moment Loop first.")
+    else:
+        gosub_830()
+        gosub_1400()
 
 if col4.button("More Print (KEY‑1)"):
     gosub_1210()
@@ -687,3 +734,11 @@ if col5.button("Footing Moment (KEY‑2)"):
 if col6.button("Point Load Check (KEY‑3)"):
     gosub_1700()
 
+st.markdown("---")
+if st.button("🔄 Reset All Inputs"):
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    initialize_globals()
+    initialize_block_and_rebar()
+    st.session_state.initialized = True
+    print("All inputs and internal variables have been reset.")
