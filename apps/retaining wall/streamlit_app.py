@@ -759,8 +759,6 @@ if st.button("🔄 Reset All Inputs"):
 
 st.markdown("---")
 if st.button("🔄 Reset All Inputs"):
-    for key in list(st.session_state.keys()):
-        del st.session_state[key]
     initialize_globals()
     initialize_block_and_rebar()
     st.session_state.initialized = True
