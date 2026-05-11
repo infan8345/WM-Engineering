@@ -757,9 +757,3 @@ if st.button("🔄 Reset All Inputs"):
 
     print("All inputs and internal variables have been reset.")
 
-st.markdown("---")
-if st.button("🔄 Reset All Inputs"):
-    initialize_globals()
-    initialize_block_and_rebar()
-    st.session_state.initialized = True
-    print("All inputs and internal variables have been reset.")
