@@ -58,7 +58,7 @@ def initialize_globals():
         "E2": 0, "K1": 0, "Areq": 0.0, "A2": 0.0,
         "P1s": 0.0, "K": 0.0, "J": 0.0,
         "A1": 0.0, "S9": 0.0, "D9": 0,
-        "R": "", "P3": 0.0, "P9": 0.0, "X9": 0.0,
+        "R": "", "P3": 0.0, "Pf": 0.0, "P9": 0.0, "X9": 0.0,
         "B": 0.0, "M": 0.0, "I1": 0, "I2": 0,
         "TABLE_ROWS": [],
         "KERN_MODE": 1,
@@ -579,8 +579,15 @@ def gosub_360():
 # ------------------------------------------------------------
 def gosub_1205():
     ss = st.session_state
-    ss.P3 = (ss.S1 * ss.P * ss.H4 + ss.P * ss.H4 * ss.H4 / 2.0) / 3.0
+    # P3 = total lateral earth pressure resultant (lbs/ft) — horizontal force
+    # Acting at H4/3 above base for triangular, adjusted for surcharge
+    ss.P3 = ss.S1 * ss.P * ss.H4 + ss.P * ss.H4 * ss.H4 / 2.0
+    # M4 = overturning moment about toe (ft-lb/ft)
     ss.M4 = ss.S1 * ss.P * ss.H4 * ss.H4 / 2.0 + ss.P * ss.H4 ** 3 / 6.0
+    # Pf = back-face wall friction (rubbing) = P3 * C9
+    # Acts as a vertical downward force on the footing, adding to normal load
+    # and contributing to sliding resistance
+    ss.Pf = ss.P3 * ss.C9
 
 # ------------------------------------------------------------
 # gosub_830 — FOOTING DESIGN
@@ -652,35 +659,40 @@ def gosub_830():
         ss.W2 = 12.5 * Tftg * ss.B
         ss.M2 = ss.W2 * ss.B / 2.0
 
+        # W6 = total vertical load (lbs/ft):
+        #   Wall stem (W1) + Footing (W2) + Heel earth (W5)
+        #   + back-face wall friction Pf (vertical component of earth push)
+        #   P3 is HORIZONTAL — must NOT be added to vertical load W6
+        # M6 = total resisting moment about toe (ft-lb/ft):
+        #   M4 is the overturning moment — included so X = M6/W6 gives
+        #   the correct resultant location measured from toe
         if ss.T1 != 4:
-            ss.M3 = ss.P3 * (ss.L / 12.0)
-            ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.P3
-            ss.M6 = ss.M1 + ss.M2 + ss.M3 + ss.M4 + ss.M5
+            ss.M3 = 0.0   # no separate passive moment — overturning is in M4
+            ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.Pf
+            ss.M6 = ss.M1 + ss.M2 + ss.M5 + ss.M4
         else:
             ss.L1 = ss.B - ss.L / 12.0 - Tftg / 12.0
             ss.W7 = ss.L1 * ss.H1 * 100.0
             ss.M7 = ss.W7 * (ss.L1 / 2.0 + ss.L / 12.0 + Tftg / 12.0)
-            M3_local = ss.P3 * (ss.L / 12.0)
-            ss.M3 = M3_local
-            ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.P3 + ss.W7 + ss.W8
-            ss.M6 = ss.M1 + ss.M2 + M3_local + ss.M5 + ss.M7 + ss.M8 - ss.M4
+            ss.M3 = 0.0
+            ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.Pf + ss.W7 + ss.W8
+            ss.M6 = ss.M1 + ss.M2 + ss.M5 + ss.M7 + ss.M8 - ss.M4
 
         def _recalc_totals():
             """Recompute W2/M2/W6/M6 after B changes."""
             ss.W2 = 12.5 * Tftg * ss.B
             ss.M2 = ss.W2 * ss.B / 2.0
             if ss.T1 != 4:
-                ss.M3 = ss.P3 * (ss.L / 12.0)
-                ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.P3
-                ss.M6 = ss.M1 + ss.M2 + ss.M3 + ss.M4 + ss.M5
+                ss.M3 = 0.0
+                ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.Pf
+                ss.M6 = ss.M1 + ss.M2 + ss.M5 + ss.M4
             else:
                 ss.L1 = ss.B - ss.L / 12.0 - Tftg / 12.0
                 ss.W7 = ss.L1 * ss.H1 * 100.0
                 ss.M7 = ss.W7 * (ss.L1 / 2.0 + ss.L / 12.0 + Tftg / 12.0)
-                M3_loc = ss.P3 * (ss.L / 12.0)
-                ss.M3 = M3_loc
-                ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.P3 + ss.W7 + ss.W8
-                ss.M6 = ss.M1 + ss.M2 + M3_loc + ss.M5 + ss.M7 + ss.M8 - ss.M4
+                ss.M3 = 0.0
+                ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.Pf + ss.W7 + ss.W8
+                ss.M6 = ss.M1 + ss.M2 + ss.M5 + ss.M7 + ss.M8 - ss.M4
 
         def _widen():
             ss.B = int(12 * ss.B + 2) / 12.0
@@ -692,11 +704,20 @@ def gosub_830():
             ss.X = ss.M6 / ss.W6 if ss.W6 != 0 else 0
 
             # --- eccentricity / kern check ---
+            # KERN_MODE 1: allow outside kern — only widen if resultant
+            #              falls completely off the footing (X<=0 or X>=B).
+            # KERN_MODE 2: force inside kern (middle third) — widen until
+            #              B/3 <= X <= 2B/3. This is the stricter condition
+            #              and produces a wider footing than mode 1 when
+            #              eccentricity is large.
             if ss.KERN_MODE == 1:
                 if ss.X <= 0 or ss.X >= ss.B:
                     _widen(); continue
             else:
-                if ss.X < ss.B / 3.0 or ss.X > 2 * ss.B / 3.0:
+                # Force resultant inside middle third
+                if ss.X < ss.B / 3.0:
+                    _widen(); continue
+                if ss.X > 2.0 * ss.B / 3.0:
                     _widen(); continue
 
             # --- S.F. overturning >= 1.5 ---
@@ -706,21 +727,29 @@ def gosub_830():
                 _widen(); continue
 
             # --- S.F. sliding >= 1.5 ---
-            # Lateral force = P3 (resultant earth pressure, already in lbs)
-            # Resistance    = friction (W6 * C9) + passive (P4 * Tftg_ft * B)
+            # Resistance = base friction (W6*C9) + passive (P4*Tftg*B)
+            #              + back-face wall friction Pf already in W6 as
+            #              vertical component; sliding resistance from Pf
+            #              is already captured via base friction term.
+            # Lateral    = P3 (total horizontal earth pressure)
             Tftg_ft = Tftg / 12.0
-            friction  = ss.W6 * ss.C9
-            passive   = ss.P4 * Tftg_ft * ss.B
-            lateral   = ss.P3
+            friction = ss.W6 * ss.C9
+            passive  = ss.P4 * Tftg_ft * ss.B
+            lateral  = ss.P3
             if lateral > 0 and (friction + passive) / lateral < 1.5:
                 _widen(); continue
 
             # --- Max soil bearing <= allowable ---
+            # KERN_MODE 1: triangular distribution when outside kern
+            # KERN_MODE 2: resultant guaranteed inside kern so always
+            #              use trapezoidal formula (no tension zone)
             ss.E1 = abs(ss.B / 2.0 - ss.X)
-            if ss.E1 > ss.B / 6.0:
+            if ss.KERN_MODE == 1 and ss.E1 > ss.B / 6.0:
+                # Outside kern — triangular bearing block
                 contact = 3.0 * ss.X if ss.X < ss.B / 2.0 else 3.0 * (ss.B - ss.X)
                 S_max = 2.0 * ss.W6 / contact if contact > 0 else 9999
             else:
+                # Inside kern — trapezoidal, no tension
                 S_max = (ss.W6 / ss.B) * (1.0 + 6.0 * ss.E1 / ss.B)
             if S_max > ss.S2:
                 _widen(); continue
@@ -745,23 +774,30 @@ def gosub_1400():
 
     ss.E1 = abs(ss.B / 2.0 - ss.X)
 
-    if ss.E1 > ss.B / 6.0:
+    kern_label2 = "B/3" if ss.KERN_MODE == 2 else "B/6"
+    kern_limit  = ss.B / 3.0 if ss.KERN_MODE == 2 else ss.B / 6.0
+
+    if ss.KERN_MODE == 1 and ss.E1 > ss.B / 6.0:
+        # Mode 1: outside kern — triangular bearing, one edge lifts
         contact = 3.0 * ss.X if ss.X < ss.B / 2.0 else 3.0 * (ss.B - ss.X)
-        S_max = 2.0 * ss.W6 / contact
+        S_max = 2.0 * ss.W6 / contact if contact > 0 else 9999
+        S_min = 0.0
         sb_flag = "  ** OK **" if S_max <= ss.S2 else f"  ** NG — EXCEEDS ALLOWABLE {ss.S2:.0f} PSF **"
         print(f"    ** E > B/6 : RESULTANT OUTSIDE KERN **")
         print(f"    SOIL BEAR'G MAX = {S_max:.2f}{ss.P3s}", sb_flag)
-        print(f"    SOIL BEAR'G MIN =   0.00{ss.P3s}")
+        print(f"    SOIL BEAR'G MIN =   0.00{ss.P3s}  (tension — footing lifts)")
         print(f"    SOIL BEAR'G ALL = {ss.S2:.2f}{ss.P3s}")
-        print(f"    ECCENTRICITY    = {ss.E1:.2f}{ss.P2}  (B/6 = {ss.B/6:.2f}{ss.P2})  ** OUTSIDE KERN **")
+        print(f"    ECCENTRICITY    = {ss.E1:.2f}{ss.P2}  ({kern_label2} = {kern_limit:.2f}{ss.P2})  ** OUTSIDE KERN **")
     else:
+        # Mode 2 (always inside kern) or Mode 1 inside kern — trapezoidal
         S_max = (ss.W6 / ss.B) * (1.0 + 6.0 * ss.E1 / ss.B)
         S_min = (ss.W6 / ss.B) * (1.0 - 6.0 * ss.E1 / ss.B)
         sb_flag = "  ** OK **" if S_max <= ss.S2 else f"  ** NG — EXCEEDS ALLOWABLE {ss.S2:.0f} PSF **"
+        kern_status = "WITHIN KERN" if ss.E1 <= ss.B / 6.0 else "OUTSIDE KERN"
         print(f"    SOIL BEAR'G MAX = {S_max:.2f}{ss.P3s}", sb_flag)
         print(f"    SOIL BEAR'G MIN = {S_min:.2f}{ss.P3s}")
         print(f"    SOIL BEAR'G ALL = {ss.S2:.2f}{ss.P3s}")
-        print(f"    ECCENTRICITY    = {ss.E1:.2f}{ss.P2}  (B/6 = {ss.B/6:.2f}{ss.P2})  ** WITHIN KERN **")
+        print(f"    ECCENTRICITY    = {ss.E1:.2f}{ss.P2}  ({kern_label2} = {kern_limit:.2f}{ss.P2})  ** {kern_status} **")
 
     OTM = ss.M4
     RM  = ss.M6 - ss.M4
@@ -777,10 +813,12 @@ def gosub_1400():
     Tftg_ft  = ss.T[ss.G] / 12.0 if ss.T[ss.G] >= 12 else 1.0
     friction  = ss.W6 * ss.C9
     passive   = ss.P4 * Tftg_ft * ss.B
+    back_fric = ss.Pf   # back-face wall friction (rubbing) already in W6
     lateral   = ss.P3
     if lateral > 0:
         SF_SL = (friction + passive) / lateral
-        print(f"    FRICTION RES= {friction:.2f} (LB)")
+        print(f"    BASE FRIC.  = {friction:.2f} (LB)  (W6 x C9, incl. back-face friction)")
+        print(f"    BACK FRIC.  = {back_fric:.2f} (LB)  (P3 x C9 — wall rubbing)")
         print(f"    PASSIVE RES = {passive:.2f} (LB)")
         print(f"    LATERAL     = {lateral:.2f} (LB)")
         print(f"    S.F. SLIDE  = {SF_SL:.2f}", "  ** OK **" if SF_SL >= 1.5 else "  ** NG — S.F. < 1.5 **")
@@ -793,15 +831,16 @@ def gosub_1400():
 def gosub_1610():
     ss = st.session_state
 
-    print("    ITEMS        W           M")
-    print(f"    WALL     {ss.W1:10.2f}  {ss.M1:10.2f}")
-    print(f"    FTG.     {ss.W2:10.2f}  {ss.M2:10.2f}")
-    print(f"    P/3      {ss.P3:10.2f}  {ss.M3:10.2f}  (arm={ss.L:.2f}in = toe+bot.stem-top.stem)")
-    print(f"    EARTH    {ss.W5:10.2f}  {ss.M5:10.2f}")
-    print(f"    EARTH2   {ss.W7:10.2f}  {ss.M7:10.2f}")
-    print(f"    EARTH3   {ss.W8:10.2f}  {ss.M8:10.2f}")
-    print(f"    O.T.M.   {'---':>10}  {ss.M4:10.2f}")
-    print(f"    TOTAL    {ss.W6:10.2f}  {ss.M6:10.2f}")
+    print("    ITEMS          W           M      NOTES")
+    print(f"    WALL       {ss.W1:10.2f}  {ss.M1:10.2f}")
+    print(f"    FTG.       {ss.W2:10.2f}  {ss.M2:10.2f}")
+    print(f"    HEEL EARTH {ss.W5:10.2f}  {ss.M5:10.2f}")
+    print(f"    BACK FRIC. {ss.Pf:10.2f}  {'(horiz)':>10}  P3xC9 wall rubbing (vertical component in W6)")
+    print(f"    HEEL SOIL2 {ss.W7:10.2f}  {ss.M7:10.2f}")
+    print(f"    HEEL SOIL3 {ss.W8:10.2f}  {ss.M8:10.2f}")
+    print(f"    O.T.M.(P3) {'---':>10}  {ss.M4:10.2f}  lateral earth pressure overturning")
+    print(f"    TOTAL      {ss.W6:10.2f}  {ss.M6:10.2f}")
+    print(f"    P3 (horiz) {ss.P3:10.2f}  {'(lateral)':>10}  earth pressure resultant (not in W)")
     print()
 
 # ------------------------------------------------------------
