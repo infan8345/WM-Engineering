@@ -680,8 +680,10 @@ def gosub_830():
         # M6 = total resisting moment about toe (ft-lb/ft):
         #   M4 is the overturning moment — included so X = M6/W6 gives
         #   the correct resultant location measured from toe
-        # Mpf = moment of back-face friction about toe
-        # Pf acts vertically downward at wall back face (arm = L/12 ft from toe)
+        # Pf = back-face wall friction — acts VERTICALLY DOWNWARD on wall stem
+        # caused by overturning tendency: earth pushes wall back face downward
+        # Contributes to OT resisting moment only — NOT to sliding resistance
+        # Moment arm from toe = L/12 ft (wall back face location)
         ss.Mpf = ss.Pf * (ss.L / 12.0)
         if ss.T1 != 4:
             ss.M3 = 0.0
@@ -770,10 +772,9 @@ def gosub_830():
                 _widen(); continue
 
             # --- S.F. sliding >= 1.5 ---
-            # Resistance = base friction (W6*C9) + passive (P4*Tftg*B)
-            #              + back-face wall friction Pf already in W6 as
-            #              vertical component; sliding resistance from Pf
-            #              is already captured via base friction term.
+            # Resistance = base friction (W6*C9)
+            #            + back-face wall friction Pf (horizontal, P3*0.3)
+            #            + passive (P4*Tftg*B)
             # Lateral    = P3 (total horizontal earth pressure)
             Tftg_ft = Tftg / 12.0
             friction = ss.W6 * ss.C9
@@ -846,27 +847,28 @@ def gosub_1400():
     RM  = ss.M6 + ss.M4   # RM = M1+M2+M5+Mpf (Mpf already in M6)
     if OTM > 0:
         SF_OT = RM / OTM
-        print(f"    RESIST. MOM = {RM:.2f} (FT-LB)")
-        print(f"    OVERTURN MOM= {OTM:.2f} (FT-LB)")
-        print(f"    S.F. OVERT. = {SF_OT:.2f}", "  ** OK **" if SF_OT >= 1.5 else "  ** NG — S.F. < 1.5 **")
+        ot_flag = "  ** OK **" if SF_OT >= 1.5 else "  ** NG — S.F. < 1.5 **"
+        print(f"    RESIST. MOM (RM)  = {RM:.2f} (FT-LB)")
+        print(f"    OVERTURN MOM (OTM)= {OTM:.2f} (FT-LB)")
+        print(f"    OT S.F. = RM/OTM = {RM:.2f}/{OTM:.2f} = {SF_OT:.2f}", ot_flag)
     else:
-        print("    S.F. OVERT. = N/A")
+        print("    OT S.F. = N/A")
 
     # S.F. sliding
     Tftg_ft  = ss.T[ss.G] / 12.0 if ss.T[ss.G] >= 12 else 1.0
     friction  = ss.W6 * ss.C9
     passive   = ss.P4 * Tftg_ft * ss.B
-    back_fric = ss.Pf   # back-face wall friction (rubbing) already in W6
+    back_fric = ss.Pf
     lateral   = ss.P3
     if lateral > 0:
         SF_SL = (friction + passive) / lateral
-        print(f"    BASE FRIC.  = {friction:.2f} (LB)  (W6 x C9, incl. back-face friction)")
-        print(f"    BACK FRIC.  = {back_fric:.2f} (LB)  (P3 x C9 — wall rubbing)")
-        print(f"    PASSIVE RES = {passive:.2f} (LB)")
-        print(f"    LATERAL     = {lateral:.2f} (LB)")
-        print(f"    S.F. SLIDE  = {SF_SL:.2f}", "  ** OK **" if SF_SL >= 1.5 else "  ** NG — S.F. < 1.5 **")
+        sl_flag = "  ** OK **" if SF_SL >= 1.5 else "  ** NG — S.F. < 1.5 **"
+        print(f"    BASE FRIC.  = W6 x C9       = {ss.W6:.2f} x {ss.C9:.2f} = {friction:.2f} (LB)")
+        print(f"    PASSIVE RES = P4 x Tftg x B = {ss.P4:.0f} x {Tftg_ft:.2f} x {ss.B:.2f} = {passive:.2f} (LB)")
+        print(f"    LATERAL     = P3             = {lateral:.2f} (LB)")
+        print(f"    SL S.F. = (BASE FRIC.+PASSIVE)/LATERAL = ({friction:.2f}+{passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
     else:
-        print("    S.F. SLIDE  = N/A")
+        print("    SL S.F. = N/A")
 
 # ------------------------------------------------------------
 # gosub_1610 — MOMENT BREAKDOWN
@@ -878,7 +880,7 @@ def gosub_1610():
     print(f"    WALL       {ss.W1:10.2f}  {ss.M1:10.2f}")
     print(f"    FTG.       {ss.W2:10.2f}  {ss.M2:10.2f}")
     print(f"    HEEL EARTH {ss.W5:10.2f}  {ss.M5:10.2f}")
-    print(f"    BACK FRIC. {ss.Pf:10.2f}  {ss.Mpf:10.2f}  P3x0.3 wall rubbing (vert., arm={ss.L/12:.2f}ft from toe)")
+    print(f"    BACK FRIC. {ss.Pf:10.2f}  {ss.Mpf:10.2f}  P3 x 0.3 — vertical, resists OT only (arm={ss.L/12:.2f} ft)")
     print(f"    HEEL SOIL2 {ss.W7:10.2f}  {ss.M7:10.2f}")
     print(f"    HEEL SOIL3 {ss.W8:10.2f}  {ss.M8:10.2f}")
     print(f"    O.T.M.     {'---':>10}  {ss.M4:10.2f}  lateral earth OTM (subtracted from M6)")
@@ -938,11 +940,12 @@ def gosub_1700():
     RM_t  = Q2 + ss.M4   # Q2 = net moment (RM-OTM), so RM = Q2 + M4
     if OTM_t > 0:
         SF_t = RM_t / OTM_t
-        print(f"    RESIST. MOM = {RM_t:.2f} (FT-LB)")
-        print(f"    OVERTURN MOM= {OTM_t:.2f} (FT-LB)")
-        print(f"    S.F. OVERT. = {SF_t:.2f}", "  ** OK **" if SF_t >= 1.5 else "  ** NG — S.F. < 1.5 **")
+        ot_flag = "  ** OK **" if SF_t >= 1.5 else "  ** NG — S.F. < 1.5 **"
+        print(f"    RESIST. MOM (RM)  = {RM_t:.2f} (FT-LB)")
+        print(f"    OVERTURN MOM (OTM)= {OTM_t:.2f} (FT-LB)")
+        print(f"    OT S.F. = RM/OTM = {RM_t:.2f}/{OTM_t:.2f} = {SF_t:.2f}", ot_flag)
     else:
-        print("    S.F. OVERT. = N/A")
+        print("    OT S.F. = N/A")
 
 # ============================================================
 # MAIN PAGE LAYOUT
