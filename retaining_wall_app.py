@@ -582,10 +582,10 @@ def gosub_1205():
     ss.P3 = ss.S1 * ss.P * ss.H4 + ss.P * ss.H4 * ss.H4 / 2.0
     # M4 = overturning moment about toe (ft-lb/ft)
     ss.M4 = ss.S1 * ss.P * ss.H4 * ss.H4 / 2.0 + ss.P * ss.H4 ** 3 / 6.0
-    # Pf = back-face wall friction (rubbing) = P3 * C9
-    # Acts as a vertical downward force on the footing, adding to normal load
-    # and contributing to sliding resistance
-    ss.Pf = ss.P3 * ss.C9
+    # Pf = back-face wall friction (rubbing force)
+    # Coefficient = 0.3 fixed (wall-soil interface, separate from base C9)
+    # Acts as additional vertical load increasing sliding resistance
+    ss.Pf = ss.P3 * 0.3
 
 # ------------------------------------------------------------
 # gosub_830 — FOOTING DESIGN
