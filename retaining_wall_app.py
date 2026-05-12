@@ -532,10 +532,16 @@ def gosub_830():
 
     first_pass = True
     while True:
-        if ss.T[ss.G] < 12:
+        # Default footing thickness by wall height:
+        #   <= 6 ft  -> 12 in
+        #   6~8 ft   -> 15 in
+        #   > 8 ft   -> match bottom stem thickness (minimum 15 in)
+        if ss.H1 <= 6.0:
             Tftg = 12.0
+        elif ss.H1 <= 8.0:
+            Tftg = 15.0
         else:
-            Tftg = ss.T[ss.G]
+            Tftg = max(15.0, ss.T[ss.G])
 
         H3 = ss.H2
         ss.W1 = ss.W5 = ss.M1 = ss.M5 = 0.0
