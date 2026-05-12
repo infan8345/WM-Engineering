@@ -1,9 +1,7 @@
 import streamlit as st
 
 # ============================================================
-#  RETAINING WALL PROGRAM — STREAMLIT VERSION (FINAL PATCHED)
-#  A2 (step-by-step) + S1 (simple buttons) + G1 (session_state)
-#  PDF generator removed (R2)
+#  RETAINING WALL PROGRAM — STREAMLIT VERSION (FINAL CLEAN)
 # ============================================================
 
 st.set_page_config(
@@ -12,7 +10,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Optional: keep sidebar width stable
+# Sidebar width lock
 st.markdown(
     """
     <style>
@@ -131,19 +129,12 @@ def gosub_140():
         st.header("Input Parameters")
 
         ss.T1 = st.selectbox("TYPE OF WALL", [1, 2, 4], index=0)
-
         ss.L2 = st.number_input("GROUND SLOPE (H:V) (X:1)", value=ss.L2)
-
         ss.H1 = st.number_input("RETAINING WALL HEIGHT (FT)", value=ss.H1)
-
         ss.P = st.number_input("EQUIV. FLUID PRESSURE (#/CF)", value=ss.P if ss.P else 30.0)
-
         ss.S2 = st.number_input("ALLOWABLE SOIL BEARING (PSF)", value=ss.S2 if ss.S2 else 1000.0)
-
         ss.C9 = st.number_input("FRICTION COEFF", value=ss.C9 if ss.C9 else 0.4)
-
         ss.P4 = st.number_input("ALLOWABLE PASSIVE (PSF)", value=ss.P4 if ss.P4 else 300.0)
-
         ss.S1 = st.number_input("SURCHARGE (FT)", value=ss.S1)
 
         ss.Cw = st.selectbox("CONC. WALL (0=Masonry, 1=Concrete)", [0, 1], index=ss.Cw)
@@ -169,12 +160,10 @@ def gosub_140():
             ss.F = st.number_input("CONCRETE F'C (PSI)", value=ss.F if ss.F else 2000.0)
             ss.F2 = 0.45 * ss.F
             ss.N2 = int(29000 / (57 * (ss.F ** 0.5)))
-
             I = st.number_input("WALL T (IN)", value=8.0)
             ss.Dval = I - 2.5
 
         ss.Y = st.number_input("STEEL ALLOWABLE (KSI)", value=ss.Y if ss.Y else 20.0)
-
         ss.C1 = st.selectbox("SLAB ON GRADE (0 OR 1)", [0, 1], index=ss.C1)
 
         H2_in = st.number_input("WALL HEIGHT INCREMENT (IN)", value=96.0)
@@ -358,7 +347,6 @@ def gosub_510():
 
     ss.K = (2 * ss.P1s + ss.P1s * ss.P1s) ** 0.5 - ss.P1s
     ss.J = 1 - ss.K / 3.0
-
     if ss.K == 0 or ss.J == 0:
         print("ERROR: K or J = 0. Reinforcement calculation cannot proceed.")
         ss.K1 = 0
@@ -697,10 +685,10 @@ def gosub_1700():
         print(f"    S.F. OVERT. = {SF_t:.2f}")
     else:
         print("    S.F. OVERT. = N/A")
+# ------------------------------------------------------------
+# MAIN PAGE BUTTONS (S1 — simple buttons) + SAFE RESET BUTTON
+# ------------------------------------------------------------
 
-# ------------------------------------------------------------
-# MAIN PAGE BUTTONS (S1 — simple buttons) + RESET
-# ------------------------------------------------------------
 st.title("Retaining Wall Program — Streamlit Version")
 
 col1, col2, col3 = st.columns(3)
@@ -733,8 +721,14 @@ if col5.button("Footing Moment (KEY‑2)"):
 
 if col6.button("Point Load Check (KEY‑3)"):
     gosub_1700()
+
+# ------------------------------------------------------------
+# SAFE RESET BUTTON (ONLY ONE)
+# ------------------------------------------------------------
+
+st.markdown("---")
+
 if st.button("🔄 Reset All Inputs"):
-    # Only clear YOUR variables, not Streamlit's internal widget state
     keys_to_clear = [
         "T","D","C","A","P1","P2","P3s","P4s","P5s","H","H1","H2","H3","H4",
         "L","L1","L2","P","P4","S1","S2","C9","Y","C1","Cw","T1","Dval","F",
@@ -748,14 +742,8 @@ if st.button("🔄 Reset All Inputs"):
         if key in st.session_state:
             del st.session_state[key]
 
-    # Reinitialize your program variables
     initialize_globals()
     initialize_block_and_rebar()
+    st.session_state.initialized = True
 
-    # Keep the app stable
-    if st.button("🔄 Reset All Inputs"):
-    # Only clear YOUR variables...
-    ...
     print("All inputs and internal variables have been reset.")
-
-
