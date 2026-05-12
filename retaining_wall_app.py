@@ -168,13 +168,18 @@ def gosub_140():
         if ss.Cw == 0:
             # FIX B: derive inspection index from current N1
             cur_insp = 1 if ss.N1 == 20 else 0
-            I = st.selectbox("CONT. INSPECTION (0 OR 1)", [0, 1], index=cur_insp)
+            I = st.selectbox(
+                "CONT. INSPECTION (0=No → F'm≤333psi, 1=Yes → F'm≤500psi)",
+                [0, 1], index=cur_insp
+            )
             if I == 1:
                 ss.N1 = 20
                 ss.F1 = 500.0
             else:
                 ss.N1 = 40
                 ss.F1 = 333.0
+            if I == 0:
+                st.caption("⚠️ No cont. inspection: F'm limited to 333 psi. If block size is insufficient, enable inspection or increase block size.")
 
             # FIX B: set D[2] explicitly from selectbox — never zero blindly
             # Default 0 = not used; user selects 1 to enable
@@ -396,6 +401,12 @@ def gosub_510():
         if ss.F < ss.F1:
             gosub_670()
             ss.K1 = 1
+        elif ss.N1 == 40 and ss.F < 500.0:
+            # F'm between 333 and 500 psi: would pass WITH cont. inspection
+            # but rejected here because cont. inspection is OFF (default=0).
+            # Force next larger block size — do not accept this section.
+            print(f"    NOTE: D={ss.Dval:.1f}in  F'm={ss.F:.0f} psi > 333 — cont. inspection required; try next block size.")
+            ss.K1 = 0
     else:
         if ss.F < ss.F2:
             gosub_670()
