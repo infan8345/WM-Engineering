@@ -104,13 +104,20 @@ if not st.session_state.initialized:
     st.session_state.initialized = True
 
 # ------------------------------------------------------------
-# Replace print() with Streamlit text output
+# FIX D: Output buffering — persists across reruns via
+# session_state. print() appends to output_log; the display
+# block at the bottom renders the full log on every rerun.
+# Original code used st.text() directly inside button handlers
+# which caused output to vanish on the very next rerun.
 # ------------------------------------------------------------
+if "output_log" not in st.session_state:
+    st.session_state.output_log = []
+
 def print(*args, **kwargs):
     sep = kwargs.get("sep", " ")
     end = kwargs.get("end", "\n")
     text = sep.join(str(a) for a in args) + end
-    st.text(text)
+    st.session_state.output_log.append(text)
 
 # ------------------------------------------------------------
 # gosub_1580 — Program Title
@@ -121,6 +128,21 @@ def gosub_1580():
 
 # ------------------------------------------------------------
 # gosub_140 — INPUT BLOCK (Streamlit sidebar)
+#
+# FIX 1: Called unconditionally at top level (not inside a
+#         button block) so widgets always render on every rerun.
+#
+# FIX A: KERN_MODE selectbox index derived from current value
+#         instead of hardcoded 0 — preserves user's choice.
+#
+# FIX B: All selectboxes derive their index from current
+#         session_state so nothing resets on rerun:
+#         - TYPE OF WALL index from ss.T1
+#         - CONT. INSPECTION index from ss.N1
+#         - 12-IN BLOCK: sets D[2]=9.5 or 0.0 from selectbox
+#         - 16-IN BLOCK: sets D[3]=13.5 or 0.0 from selectbox
+#         - WALL T widget reflects current ss.Dval
+#         - WALL HEIGHT INCREMENT reflects current ss.H2
 # ------------------------------------------------------------
 def gosub_140():
     ss = st.session_state
@@ -128,10 +150,14 @@ def gosub_140():
     with st.sidebar:
         st.header("Input Parameters")
 
-        ss.T1 = st.selectbox("TYPE OF WALL", [1, 2, 4], index=0)
+        # TYPE OF WALL — derive index from current T1 value
+        t1_options = [1, 2, 4]
+        t1_index = t1_options.index(ss.T1) if ss.T1 in t1_options else 0
+        ss.T1 = st.selectbox("TYPE OF WALL", t1_options, index=t1_index)
+
         ss.L2 = st.number_input("GROUND SLOPE (H:V) (X:1)", value=ss.L2)
         ss.H1 = st.number_input("RETAINING WALL HEIGHT (FT)", value=ss.H1)
-        ss.P = st.number_input("EQUIV. FLUID PRESSURE (#/CF)", value=ss.P if ss.P else 30.0)
+        ss.P  = st.number_input("EQUIV. FLUID PRESSURE (#/CF)", value=ss.P if ss.P else 30.0)
         ss.S2 = st.number_input("ALLOWABLE SOIL BEARING (PSF)", value=ss.S2 if ss.S2 else 1000.0)
         ss.C9 = st.number_input("FRICTION COEFF", value=ss.C9 if ss.C9 else 0.4)
         ss.P4 = st.number_input("ALLOWABLE PASSIVE (PSF)", value=ss.P4 if ss.P4 else 300.0)
@@ -140,7 +166,9 @@ def gosub_140():
         ss.Cw = st.selectbox("CONC. WALL (0=Masonry, 1=Concrete)", [0, 1], index=ss.Cw)
 
         if ss.Cw == 0:
-            I = st.selectbox("CONT. INSPECTION (0 OR 1)", [0, 1])
+            # FIX B: derive inspection index from current N1
+            cur_insp = 1 if ss.N1 == 20 else 0
+            I = st.selectbox("CONT. INSPECTION (0 OR 1)", [0, 1], index=cur_insp)
             if I == 1:
                 ss.N1 = 20
                 ss.F1 = 500.0
@@ -148,35 +176,43 @@ def gosub_140():
                 ss.N1 = 40
                 ss.F1 = 333.0
 
-            I = st.selectbox("12-IN BLOCK (0 OR 1)", [0, 1])
-            if I != 1:
-                ss.D[2] = 0.0
+            # FIX B: set D[2] explicitly from selectbox — never zero blindly
+            cur_12 = 1 if ss.D[2] != 0.0 else 0
+            I = st.selectbox("12-IN BLOCK (0 OR 1)", [0, 1], index=cur_12)
+            ss.D[2] = 9.5 if I == 1 else 0.0
 
-            I = st.selectbox("16-IN BLOCK (0 OR 1)", [0, 1])
-            if I != 1:
-                ss.D[3] = 0.0
+            # FIX B: same for D[3]
+            cur_16 = 1 if ss.D[3] != 0.0 else 0
+            I = st.selectbox("16-IN BLOCK (0 OR 1)", [0, 1], index=cur_16)
+            ss.D[3] = 13.5 if I == 1 else 0.0
 
         else:
-            ss.F = st.number_input("CONCRETE F'C (PSI)", value=ss.F if ss.F else 2000.0)
+            ss.F  = st.number_input("CONCRETE F'C (PSI)", value=ss.F if ss.F else 2000.0)
             ss.F2 = 0.45 * ss.F
             ss.N2 = int(29000 / (57 * (ss.F ** 0.5)))
-            I = st.number_input("WALL T (IN)", value=8.0)
+            # FIX B: reflect current Dval back into widget
+            wall_t_default = (ss.Dval + 2.5) if ss.Dval else 8.0
+            I = st.number_input("WALL T (IN)", value=wall_t_default)
             ss.Dval = I - 2.5
 
-        ss.Y = st.number_input("STEEL ALLOWABLE (KSI)", value=ss.Y if ss.Y else 20.0)
+        ss.Y  = st.number_input("STEEL ALLOWABLE (KSI)", value=ss.Y if ss.Y else 20.0)
         ss.C1 = st.selectbox("SLAB ON GRADE (0 OR 1)", [0, 1], index=ss.C1)
 
-        H2_in = st.number_input("WALL HEIGHT INCREMENT (IN)", value=96.0)
+        # FIX B: reflect current H2 back into widget
+        H2_in_default = (ss.H2 * 12.0) if ss.H2 else 96.0
+        H2_in = st.number_input("WALL HEIGHT INCREMENT (IN)", value=H2_in_default)
         ss.H2 = H2_in / 12.0
 
         ss.E = st.number_input("TOE (IN)", value=ss.E)
 
-        ss.KERN_MODE = st.selectbox(
+        # FIX A: derive index from current KERN_MODE — preserves user choice
+        kern_index = 0 if ss.KERN_MODE == 1 else 1
+        kern_sel = st.selectbox(
             "ECCENTRICITY MODE",
             ["ALLOW OUTSIDE KERN (1)", "FORCE INSIDE KERN (2)"],
-            index=0
+            index=kern_index
         )
-        ss.KERN_MODE = 1 if ss.KERN_MODE.startswith("ALLOW") else 2
+        ss.KERN_MODE = 1 if kern_sel.startswith("ALLOW") else 2
 
 # ------------------------------------------------------------
 # gosub_5000 — placeholder
@@ -383,6 +419,11 @@ def gosub_620():
 
 # ------------------------------------------------------------
 # gosub_360 — MOMENT + STEEL LOOP
+#
+# FIX C: masonry-to-concrete fallback block originally wrote
+# ss.Cw=1, ss.F2=900, ss.N2=11 directly, permanently corrupting
+# the user's wall-type selection for all subsequent reruns.
+# Fix: save and restore Cw/F2/N2 around the fallback block.
 # ------------------------------------------------------------
 def gosub_360():
     ss = st.session_state
@@ -422,10 +463,12 @@ def gosub_360():
         else:
             if I > 4 or ss.D[I] == 0:
                 prev_I = max(1, I - 1)
+                # FIX C: save user wall-type before running concrete fallback
+                save_Cw, save_F2, save_N2, save_Dval = ss.Cw, ss.F2, ss.N2, ss.Dval
                 ss.Dval = ss.D[prev_I] if ss.D[prev_I] != 0 else 5.5
-                ss.Cw = 1
-                ss.F2 = 900.0
-                ss.N2 = 11
+                ss.Cw   = 1
+                ss.F2   = 900.0
+                ss.N2   = 11
                 found = False
                 while ss.Dval <= MAX_DVAL:
                     gosub_510()
@@ -441,6 +484,14 @@ def gosub_360():
 
                 if not found:
                     print(f"  WARNING: No valid section found at H={ss.H:.2f} ft")
+
+                # FIX C: always restore user's wall type
+                # Keep found Dval if successful; restore old Dval if not
+                ss.Cw = save_Cw
+                ss.F2 = save_F2
+                ss.N2 = save_N2
+                if not found:
+                    ss.Dval = save_Dval
 
                 if ss.H >= ss.H1 - 0.01:
                     break
@@ -510,13 +561,13 @@ def gosub_830():
                 ss.M1 += W * (ss.L + ss.T[i] / 2.0) / 12.0
 
             if ss.T1 == 1:
-                W = H3 * (ss.L - ss.T[i]) / 0.12
+                W  = H3 * (ss.L - ss.T[i]) / 0.12
                 Mw = W * (ss.L - ss.T[i]) / 24.0
             elif ss.T1 == 2:
-                W = ss.L * H3 / 0.12
+                W  = ss.L * H3 / 0.12
                 Mw = W * ss.L / 24.0
             else:
-                W = (Tftg - ss.T[i]) * H3 / 0.12
+                W  = (Tftg - ss.T[i]) * H3 / 0.12
                 Mw = W * (ss.L + ss.T[i] + (Tftg - ss.T[i]) / 2.0) / 12.0
 
             ss.W5 += W
@@ -618,7 +669,7 @@ def gosub_1400():
         SF_OT = RM / OTM
         print(f"    RESIST. MOM = {RM:.2f} (FT-LB)")
         print(f"    OVERTURN MOM= {OTM:.2f} (FT-LB)")
-        print(f"    S.F. OVERT. = {SF_OT:.2f}")
+        print(f"    S.F. OVERT. = {SF_OT:.2f}", "  ** OK **" if SF_OT >= 1.5 else "  ** NG — S.F. < 1.5 **")
     else:
         print("    S.F. OVERT. = N/A")
 
@@ -641,17 +692,28 @@ def gosub_1610():
 
 # ------------------------------------------------------------
 # gosub_1700 — POINT LOAD CHECK
+#
+# FIX E: Original rendered P9/X9 inputs inside this function
+# via st.sidebar.number_input — those widgets disappeared on
+# every rerun since the function only ran on button click.
+# Fix: P9/X9 inputs moved to always-visible sidebar section
+# (controlled by a checkbox). This function now only calculates.
 # ------------------------------------------------------------
 def gosub_1700():
     ss = st.session_state
 
-    st.sidebar.subheader("Point Load Check (KEY‑3)")
-    ss.P9 = st.sidebar.number_input("P (LB)", value=ss.P9)
-    ss.X9 = st.sidebar.number_input("X9 (FT)", value=ss.X9)
-    B_trial = st.sidebar.number_input("B (FTG WIDTH - FT)", value=ss.B if ss.B else 0.0)
+    if ss.B == 0:
+        print("    ERROR: B = 0. Run Footing Design first.")
+        return
 
+    B_trial = ss.B
     Q1 = ss.W1 + B_trial * 150 + ss.P3 + ss.W4 + ss.W5 + ss.W7 + ss.W8 + ss.P9
     Q2 = ss.M1 + B_trial * 150 * B_trial / 2 + ss.M3 + ss.M4 + ss.M5 + ss.M7 + ss.M8 + ss.P9 * ss.X9
+
+    if Q1 == 0:
+        print("    ERROR: Total weight Q1 = 0. Run Footing Design first.")
+        return
+
     X_trial = Q2 / Q1
     E9 = abs(B_trial / 2 - X_trial)
 
@@ -682,17 +744,48 @@ def gosub_1700():
         SF_t = RM_t / OTM_t
         print(f"    RESIST. MOM = {RM_t:.2f} (FT-LB)")
         print(f"    OVERTURN MOM= {OTM_t:.2f} (FT-LB)")
-        print(f"    S.F. OVERT. = {SF_t:.2f}")
+        print(f"    S.F. OVERT. = {SF_t:.2f}", "  ** OK **" if SF_t >= 1.5 else "  ** NG — S.F. < 1.5 **")
     else:
         print("    S.F. OVERT. = N/A")
-# ------------------------------------------------------------
-# MAIN PAGE BUTTONS (S1 — simple buttons) + SAFE RESET BUTTON
-# ------------------------------------------------------------
+
+# ============================================================
+# MAIN PAGE LAYOUT
+# ============================================================
 
 st.title("Retaining Wall Program — Streamlit Version")
 
-# Always render sidebar inputs on every rerun so the widgets stay visible
+# FIX 1: Always render sidebar inputs — not inside a button block
 gosub_140()
+
+# FIX E: Point Load inputs always visible when checkbox enabled.
+# Checkbox state in session_state so it survives reruns.
+# P9/X9 use key-only pattern — NO value= override.
+# Passing value= resets the field to ss.P9/ss.X9 on every rerun
+# (the door closes again as soon as the user types anything).
+# We initialise the keyed slots once, then Streamlit owns them.
+if "show_ptload" not in st.session_state:
+    st.session_state.show_ptload = False
+if "pl_P9" not in st.session_state:
+    st.session_state.pl_P9 = 0.0
+if "pl_X9" not in st.session_state:
+    st.session_state.pl_X9 = 0.0
+
+with st.sidebar:
+    st.markdown("---")
+    st.session_state.show_ptload = st.checkbox(
+        "Show Point Load inputs (KEY-3)",
+        value=st.session_state.show_ptload
+    )
+    if st.session_state.show_ptload:
+        st.subheader("Point Load Check (KEY‑ 3)")
+        # key= only, no value= — widget retains whatever user typed
+        st.number_input("P (LB)",  step=1.0, format="%g", key="pl_P9")
+        st.number_input("X9 (FT)", step=0.1, format="%g", key="pl_X9")
+
+# Always sync ss.P9/ss.X9 from keyed widgets so gosub_1700 reads
+# the current typed values no matter when the button is clicked.
+st.session_state.P9 = st.session_state.pl_P9
+st.session_state.X9 = st.session_state.pl_X9
 
 col1, col2, col3 = st.columns(3)
 col4, col5, col6 = st.columns(3)
@@ -724,10 +817,15 @@ if col5.button("Footing Moment (KEY‑2)"):
 if col6.button("Point Load Check (KEY‑3)"):
     gosub_1700()
 
-# ------------------------------------------------------------
-# SAFE RESET BUTTON (ONLY ONE)
-# ------------------------------------------------------------
+# FIX D: Persistent output — always rendered, survives every rerun
+if st.session_state.output_log:
+    st.markdown("---")
+    st.subheader("Output")
+    st.text("".join(st.session_state.output_log))
 
+# ------------------------------------------------------------
+# SAFE RESET BUTTON
+# ------------------------------------------------------------
 st.markdown("---")
 
 if st.button("🔄 Reset All Inputs"):
@@ -737,7 +835,8 @@ if st.button("🔄 Reset All Inputs"):
         "F1","F2","N1","N2","G","W1","W2","W3","W4","W5","W6","W7","W8",
         "M1","M2","M3","M4","M5","M6","M7","M8","X","S","E","E1","E2","K1",
         "Areq","A2","P1s","K","J","A1","S9","D9","R","P3","P9","X9","B","M",
-        "I1","I2","TABLE_ROWS","KERN_MODE"
+        "I1","I2","TABLE_ROWS","KERN_MODE","output_log","initialized",
+        "pl_P9","pl_X9","show_ptload"
     ]
 
     for key in keys_to_clear:
@@ -747,5 +846,5 @@ if st.button("🔄 Reset All Inputs"):
     initialize_globals()
     initialize_block_and_rebar()
     st.session_state.initialized = True
-
-    print("All inputs and internal variables have been reset.")
+    st.session_state.output_log = []
+    st.rerun()
