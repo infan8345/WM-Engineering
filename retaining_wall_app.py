@@ -74,8 +74,8 @@ def initialize_block_and_rebar():
     ss = st.session_state
 
     ss.D[1] = 5.5
-    ss.D[2] = 9.5
-    ss.D[3] = 13.5
+    ss.D[2] = 0.0   # 12-in block off by default
+    ss.D[3] = 0.0   # 16-in block off by default
     ss.D[4] = 0.0
 
     ss.A[1] = 0.10
@@ -177,13 +177,14 @@ def gosub_140():
                 ss.F1 = 333.0
 
             # FIX B: set D[2] explicitly from selectbox — never zero blindly
+            # Default 0 = not used; user selects 1 to enable
             cur_12 = 1 if ss.D[2] != 0.0 else 0
-            I = st.selectbox("12-IN BLOCK (0 OR 1)", [0, 1], index=cur_12)
+            I = st.selectbox("12-IN BLOCK (0=No, 1=Yes)", [0, 1], index=cur_12)
             ss.D[2] = 9.5 if I == 1 else 0.0
 
-            # FIX B: same for D[3]
+            # Default 0 = not used; user selects 1 to enable
             cur_16 = 1 if ss.D[3] != 0.0 else 0
-            I = st.selectbox("16-IN BLOCK (0 OR 1)", [0, 1], index=cur_16)
+            I = st.selectbox("16-IN BLOCK (0=No, 1=Yes)", [0, 1], index=cur_16)
             ss.D[3] = 13.5 if I == 1 else 0.0
 
         else:
@@ -657,6 +658,16 @@ def gosub_830():
             if lateral > 0 and (friction + passive) / lateral < 1.5:
                 _widen(); continue
 
+            # --- Max soil bearing <= allowable ---
+            ss.E1 = abs(ss.B / 2.0 - ss.X)
+            if ss.E1 > ss.B / 6.0:
+                contact = 3.0 * ss.X if ss.X < ss.B / 2.0 else 3.0 * (ss.B - ss.X)
+                S_max = 2.0 * ss.W6 / contact if contact > 0 else 9999
+            else:
+                S_max = (ss.W6 / ss.B) * (1.0 + 6.0 * ss.E1 / ss.B)
+            if S_max > ss.S2:
+                _widen(); continue
+
             # all checks passed
             break
 
@@ -680,15 +691,19 @@ def gosub_1400():
     if ss.E1 > ss.B / 6.0:
         contact = 3.0 * ss.X if ss.X < ss.B / 2.0 else 3.0 * (ss.B - ss.X)
         S_max = 2.0 * ss.W6 / contact
+        sb_flag = "  ** OK **" if S_max <= ss.S2 else f"  ** NG — EXCEEDS ALLOWABLE {ss.S2:.0f} PSF **"
         print(f"    ** E > B/6 : RESULTANT OUTSIDE KERN **")
-        print(f"    SOIL BEAR'G MAX = {S_max:.2f}{ss.P3s}")
+        print(f"    SOIL BEAR'G MAX = {S_max:.2f}{ss.P3s}", sb_flag)
         print(f"    SOIL BEAR'G MIN =   0.00{ss.P3s}")
+        print(f"    SOIL BEAR'G ALL = {ss.S2:.2f}{ss.P3s}")
         print(f"    ECCENTRICITY    = {ss.E1:.2f}{ss.P2}  (B/6 = {ss.B/6:.2f}{ss.P2})  ** OUTSIDE KERN **")
     else:
         S_max = (ss.W6 / ss.B) * (1.0 + 6.0 * ss.E1 / ss.B)
         S_min = (ss.W6 / ss.B) * (1.0 - 6.0 * ss.E1 / ss.B)
-        print(f"    SOIL BEAR'G MAX = {S_max:.2f}{ss.P3s}")
+        sb_flag = "  ** OK **" if S_max <= ss.S2 else f"  ** NG — EXCEEDS ALLOWABLE {ss.S2:.0f} PSF **"
+        print(f"    SOIL BEAR'G MAX = {S_max:.2f}{ss.P3s}", sb_flag)
         print(f"    SOIL BEAR'G MIN = {S_min:.2f}{ss.P3s}")
+        print(f"    SOIL BEAR'G ALL = {ss.S2:.2f}{ss.P3s}")
         print(f"    ECCENTRICITY    = {ss.E1:.2f}{ss.P2}  (B/6 = {ss.B/6:.2f}{ss.P2})  ** WITHIN KERN **")
 
     OTM = ss.M4
