@@ -541,7 +541,8 @@ def gosub_830():
         ss.W1 = ss.W5 = ss.M1 = ss.M5 = 0.0
 
         if ss.T1 == 1:
-            ss.L = ss.E + ss.T[ss.G]
+            # P/3 arm = toe + bottom stem thickness - top stem thickness
+            ss.L = ss.E + ss.T[ss.G] - ss.T[1]
         else:
             ss.L = ss.E
 
@@ -717,7 +718,7 @@ def gosub_1610():
     print("    ITEMS        W           M")
     print(f"    WALL     {ss.W1:10.2f}  {ss.M1:10.2f}")
     print(f"    FTG.     {ss.W2:10.2f}  {ss.M2:10.2f}")
-    print(f"    P/3      {ss.P3:10.2f}  {ss.M3:10.2f}  (arm={ss.L:.0f}in from toe)")
+    print(f"    P/3      {ss.P3:10.2f}  {ss.M3:10.2f}  (arm={ss.L:.2f}in = toe+bot.stem-top.stem)")
     print(f"    EARTH    {ss.W5:10.2f}  {ss.M5:10.2f}")
     print(f"    EARTH2   {ss.W7:10.2f}  {ss.M7:10.2f}")
     print(f"    EARTH3   {ss.W8:10.2f}  {ss.M8:10.2f}")
