@@ -61,6 +61,7 @@ def initialize_globals():
         "R": "", "P3": 0.0, "Pf": 0.0, "P9": 0.0, "X9": 0.0,
         "B": 0.0, "M": 0.0, "I1": 0, "I2": 0,
         "TABLE_ROWS": [],
+        "_silent": False,
         "KERN_MODE": 1,
     }
 
@@ -248,7 +249,8 @@ def gosub_790():
 # ------------------------------------------------------------
 def gosub_670():
     ss = st.session_state
-
+    if getattr(ss, '_silent', False):
+        return   # Pass 1: suppress output and state writes
     ss.G += 1
     ss.T[ss.G] = ss.Dval + 2.5
     ss.C[ss.G] = ss.Cw
@@ -402,10 +404,9 @@ def gosub_510():
             gosub_670()
             ss.K1 = 1
         elif ss.N1 == 40 and ss.F < 500.0:
-            # F'm between 333 and 500 psi: would pass WITH cont. inspection
-            # but rejected here because cont. inspection is OFF (default=0).
-            # Force next larger block size — do not accept this section.
-            print(f"    NOTE: D={ss.Dval:.1f}in  F'm={ss.F:.0f} psi > 333 — cont. inspection required; try next block size.")
+            # F'm between 333-500: needs cont. inspection — reject without it
+            if not getattr(ss, '_silent', False):
+                print(f"    NOTE: D={ss.Dval:.1f}in  F'm={ss.F:.0f} psi > 333 — cont. inspection required; try next block size.")
             ss.K1 = 0
     else:
         if ss.F < ss.F2:
@@ -441,24 +442,19 @@ def gosub_360():
     """
     Two-pass moment + steel loop.
 
-    PASS 1: Walk top-down (H=0 -> H1) and record, for each height
-            increment, the minimum block index required to satisfy
-            the moment demand.  No output is produced.
+    PASS 1 (silent): For each height increment determine the minimum
+            block index needed. Does NOT call gosub_670 (no output,
+            no ss.G increment, no ss.T/C writes).
 
-    PASS 2: Enforce the 24-inch minimum zone rule:
-            When a larger block size (12" or 16" CMU, or concrete)
-            is first needed at some height H_step, that block must
-            extend at least 24" (2 ft) downward toward the base.
-            If the zone from H_step to H1 is less than 24", extend
-            the larger block upward until 24" is covered.
-            Then re-run the moment check for each increment using the
-            enforced block index and produce the printed output.
+    PASS 2 (output): Enforce 24-inch minimum zone then re-run each
+            increment using the enforced block index, calling
+            gosub_670 to produce the printed table row.
     """
     ss = st.session_state
-    MIN_ZONE = 2.0   # 24 inches expressed in feet
+    MIN_ZONE = 2.0   # 24 inches = 2 ft minimum zone per block size
 
     # ----------------------------------------------------------
-    # Build the height increment list (same sequence the loop uses)
+    # Build height increment list
     # ----------------------------------------------------------
     heights = []
     h = 0.0
@@ -472,65 +468,76 @@ def gosub_360():
 
     MAX_DVAL = 30.0
 
-    def _find_block_index(h_val):
-        """Return minimum block index I needed at height h_val."""
-        ss.M = ss.S1 * ss.P * h_val * h_val / 2.0 + ss.P * h_val ** 3 / 6.0
-        for idx in range(1, 5):
-            if idx > 4 or ss.D[idx] == 0:
-                return idx   # signals fallback to concrete
-            ss.Dval = ss.D[idx]
-            gosub_510()
-            if ss.K1 == 1:
-                return idx
+    def _check_block(idx, h_val):
+        """
+        Silent check: can block index idx satisfy moment at h_val?
+        Sets ss._silent=True so gosub_670 skips output and ss.G/T/C writes.
+        Saves and restores all touched state variables.
+        """
+        save = {k: ss[k] for k in ('Dval','G','K1','M','Areq','A2','F','I1','P1s','K','J')}
+        ss._silent = True
+        ss.M    = ss.S1 * ss.P * h_val**2 / 2.0 + ss.P * h_val**3 / 6.0
+        ss.Dval = ss.D[idx]
+        gosub_510()
+        ok = ss.K1 == 1
+        if not ok:
             ss.I1 = 7
             gosub_620()
-            if ss.K1 == 1:
+            ok = ss.K1 == 1
+        ss._silent = False
+        for k, v in save.items():
+            ss[k] = v
+        return ok
+
+    def _find_block_index(h_val):
+        """Return minimum block index I that satisfies moment at h_val."""
+        for idx in range(1, 5):
+            if idx > 4 or ss.D[idx] == 0:
+                return idx   # concrete fallback signal
+            if _check_block(idx, h_val):
                 return idx
         return 5   # concrete fallback
 
     # ----------------------------------------------------------
-    # PASS 1: determine raw block index required at each height
+    # PASS 1 (silent): raw block index per height step
     # ----------------------------------------------------------
     raw_idx = []
     for h_val in heights:
         raw_idx.append(_find_block_index(h_val))
 
     # ----------------------------------------------------------
-    # PASS 2: enforce 24-inch minimum zone
-    # Walk list in reverse (base -> top) and propagate larger
-    # block index upward until the 24" zone is satisfied.
+    # PASS 2a: enforce 24-inch minimum zone
+    # Walk from base upward; if a larger block zone is shorter
+    # than 24", extend it upward to cover at least 24".
     # ----------------------------------------------------------
     enforced_idx = list(raw_idx)
     n = len(heights)
 
     for j in range(n - 1, -1, -1):
-        if enforced_idx[j] >= 2:          # 12", 16", or concrete needed here
-            # Find the topmost extent of this zone going upward
+        if enforced_idx[j] >= 2:
             zone_top = j
-            while zone_top > 0 and enforced_idx[zone_top - 1] >= enforced_idx[j]:
+            while zone_top > 0 and enforced_idx[zone_top-1] >= enforced_idx[j]:
                 zone_top -= 1
-            # Height covered by this zone downward to base
-            zone_ht = heights[n - 1] - heights[zone_top] + ss.H2
+            zone_ht = heights[n-1] - heights[zone_top] + ss.H2
             if zone_ht < MIN_ZONE:
-                # Need to extend zone upward by (MIN_ZONE - zone_ht)
-                extra_needed = MIN_ZONE - zone_ht
-                extra_steps  = int(extra_needed / ss.H2) + 1
+                extra_steps = int((MIN_ZONE - zone_ht) / ss.H2) + 1
                 new_top = max(0, zone_top - extra_steps)
                 for k in range(new_top, zone_top):
                     if enforced_idx[k] < enforced_idx[j]:
                         enforced_idx[k] = enforced_idx[j]
 
     # ----------------------------------------------------------
-    # PASS 2 output: run moment loop using enforced block indices
+    # PASS 2b (output): re-run with enforced indices, call
+    # gosub_670 to write table rows and update ss.T/ss.C/ss.G
     # ----------------------------------------------------------
-    ss.H = 0.0
-    ss.G = 0
+    ss.H   = 0.0
+    ss.G   = 0
     prev_I = 0
 
     for step, h_val in enumerate(heights):
         ss.H = h_val
-        ss.M = ss.S1 * ss.P * ss.H * ss.H / 2.0 + ss.P * ss.H ** 3 / 6.0
-        I = enforced_idx[step]
+        ss.M = ss.S1 * ss.P * ss.H**2 / 2.0 + ss.P * ss.H**3 / 6.0
+        I    = enforced_idx[step]
 
         if I != prev_I and I >= 2:
             blk_name = {2: "12-in CMU", 3: "16-in CMU"}.get(I, "Concrete")
@@ -538,34 +545,25 @@ def gosub_360():
         prev_I = I
 
         if ss.Cw == 1 or I > 4 or ss.D[I] == 0:
-            # Concrete path (original fallback)
+            # Concrete fallback
             prev_I_cmu = max(1, I - 1)
             save_Cw, save_F2, save_N2, save_Dval = ss.Cw, ss.F2, ss.N2, ss.Dval
             ss.Dval = ss.D[prev_I_cmu] if (prev_I_cmu <= 4 and ss.D[prev_I_cmu] != 0) else 5.5
-            ss.Cw = 1
-            ss.F2 = 900.0
-            ss.N2 = 11
+            ss.Cw = 1;  ss.F2 = 900.0;  ss.N2 = 11
             found = False
             while ss.Dval <= MAX_DVAL:
                 gosub_510()
-                if ss.K1 == 1:
-                    found = True
-                    break
+                if ss.K1 == 1: found = True; break
                 ss.I1 = 7
                 gosub_620()
-                if ss.K1 == 1:
-                    found = True
-                    break
+                if ss.K1 == 1: found = True; break
                 ss.Dval += 1.0
             if not found:
-                print(f"  WARNING: No valid section found at H={ss.H:.2f} ft")
-            ss.Cw  = save_Cw
-            ss.F2  = save_F2
-            ss.N2  = save_N2
-            if not found:
-                ss.Dval = save_Dval
+                print(f"  WARNING: No valid concrete section at H={ss.H:.2f} ft")
+            ss.Cw = save_Cw;  ss.F2 = save_F2;  ss.N2 = save_N2
+            if not found: ss.Dval = save_Dval
         else:
-            # CMU path — use enforced block index
+            # CMU path — enforced block index
             ss.Dval = ss.D[I]
             gosub_510()
             if ss.K1 == 0:
@@ -669,7 +667,7 @@ def gosub_830():
         if ss.T1 != 4:
             ss.M3 = 0.0   # no separate passive moment — overturning is in M4
             ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.Pf
-            ss.M6 = ss.M1 + ss.M2 + ss.M5 + ss.M4
+            ss.M6 = ss.M1 + ss.M2 + ss.M5 - ss.M4   # M4 = OTM, subtracted
         else:
             ss.L1 = ss.B - ss.L / 12.0 - Tftg / 12.0
             ss.W7 = ss.L1 * ss.H1 * 100.0
@@ -685,7 +683,7 @@ def gosub_830():
             if ss.T1 != 4:
                 ss.M3 = 0.0
                 ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.Pf
-                ss.M6 = ss.M1 + ss.M2 + ss.M5 + ss.M4
+                ss.M6 = ss.M1 + ss.M2 + ss.M5 - ss.M4   # M4 = OTM, subtracted
             else:
                 ss.L1 = ss.B - ss.L / 12.0 - Tftg / 12.0
                 ss.W7 = ss.L1 * ss.H1 * 100.0
@@ -722,7 +720,7 @@ def gosub_830():
 
             # --- S.F. overturning >= 1.5 ---
             OTM = ss.M4
-            RM  = ss.M6 - OTM
+            RM  = ss.M6 + ss.M4   # M6 = RM - OTM, so RM = M6 + M4
             if OTM > 0 and RM / OTM < 1.5:
                 _widen(); continue
 
@@ -800,7 +798,7 @@ def gosub_1400():
         print(f"    ECCENTRICITY    = {ss.E1:.2f}{ss.P2}  ({kern_label2} = {kern_limit:.2f}{ss.P2})  ** {kern_status} **")
 
     OTM = ss.M4
-    RM  = ss.M6 - ss.M4
+    RM  = ss.M6 + ss.M4   # M6 = RM - OTM, so RM = M6 + M4
     if OTM > 0:
         SF_OT = RM / OTM
         print(f"    RESIST. MOM = {RM:.2f} (FT-LB)")
@@ -838,7 +836,7 @@ def gosub_1610():
     print(f"    BACK FRIC. {ss.Pf:10.2f}  {'(horiz)':>10}  P3xC9 wall rubbing (vertical component in W6)")
     print(f"    HEEL SOIL2 {ss.W7:10.2f}  {ss.M7:10.2f}")
     print(f"    HEEL SOIL3 {ss.W8:10.2f}  {ss.M8:10.2f}")
-    print(f"    O.T.M.(P3) {'---':>10}  {ss.M4:10.2f}  lateral earth pressure overturning")
+    print(f"    O.T.M.     {'---':>10}  {ss.M4:10.2f}  lateral earth OTM (subtracted from M6)")
     print(f"    TOTAL      {ss.W6:10.2f}  {ss.M6:10.2f}")
     print(f"    P3 (horiz) {ss.P3:10.2f}  {'(lateral)':>10}  earth pressure resultant (not in W)")
     print()
@@ -892,7 +890,7 @@ def gosub_1700():
         print(f"    ECCENTRICITY = {E9:.2f} (FT)  (B/6 = {B_trial/6:.2f} FT)  ** WITHIN KERN **")
 
     OTM_t = ss.M4
-    RM_t  = Q2 - ss.M4
+    RM_t  = Q2 + ss.M4   # Q2 = net moment (RM-OTM), so RM = Q2 + M4
     if OTM_t > 0:
         SF_t = RM_t / OTM_t
         print(f"    RESIST. MOM = {RM_t:.2f} (FT-LB)")
