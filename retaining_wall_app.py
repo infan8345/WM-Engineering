@@ -619,6 +619,7 @@ def gosub_830():
             if i == ss.G:
                 H3 = ss.H1 - ss.H2 * (ss.G - 1)
 
+            # --- Wall stem weight and moment about toe ---
             if ss.C[i] == 1:
                 W = 12.5 * ss.T[i] * H3
             else:
@@ -626,19 +627,34 @@ def gosub_830():
             ss.W1 += W
 
             if ss.T1 == 1:
+                # Arm from toe to stem centroid (in inches -> ft)
+                # Stem back face is at L from toe; centroid at L - T[i]/2
                 ss.M1 += W * (ss.L - ss.T[i] / 2.0) / 12.0
             else:
                 ss.M1 += W * (ss.L + ss.T[i] / 2.0) / 12.0
 
+            # --- Heel earth weight and moment about toe ---
             if ss.T1 == 1:
-                W  = H3 * (ss.L - ss.T[i]) / 0.12
-                Mw = W * (ss.L - ss.T[i]) / 24.0
+                # Type 1: heel earth sits from wall back face to heel edge
+                # heel_width (ft) = B - L/12  (B known from prior iteration or initial guess)
+                # For first pass use L as proxy; _recalc_totals will correct with actual B
+                heel_ft = ss.B - ss.L / 12.0
+                if heel_ft < 0: heel_ft = 0.0
+                W  = 100.0 * H3 * heel_ft
+                # Moment arm from toe to centroid of heel earth
+                arm_ft = ss.L / 12.0 + heel_ft / 2.0
+                Mw = W * arm_ft
             elif ss.T1 == 2:
-                W  = ss.L * H3 / 0.12
-                Mw = W * ss.L / 24.0
+                heel_ft = ss.L / 12.0
+                W  = 100.0 * H3 * heel_ft
+                arm_ft = heel_ft / 2.0
+                Mw = W * arm_ft
             else:
-                W  = (Tftg - ss.T[i]) * H3 / 0.12
-                Mw = W * (ss.L + ss.T[i] + (Tftg - ss.T[i]) / 2.0) / 12.0
+                # Type 4: heel earth between toe and wall face
+                heel_ft = (Tftg - ss.T[i]) / 12.0
+                W  = 100.0 * H3 * heel_ft
+                arm_ft = ss.L / 12.0 + ss.T[i] / 12.0 + heel_ft / 2.0
+                Mw = W * arm_ft
 
             ss.W5 += W
             ss.M5 += Mw
@@ -677,13 +693,38 @@ def gosub_830():
             ss.M6 = ss.M1 + ss.M2 + ss.M5 + ss.M7 + ss.M8 - ss.M4
 
         def _recalc_totals():
-            """Recompute W2/M2/W6/M6 after B changes."""
+            """Recompute W2/M2/W5/M5/W6/M6 after B changes."""
             ss.W2 = 12.5 * Tftg * ss.B
             ss.M2 = ss.W2 * ss.B / 2.0
+
+            # Recompute heel earth W5/M5 with current B (heel width = B - L/12)
+            ss.W5 = 0.0; ss.M5 = 0.0
+            H3 = ss.H2
+            for i in range(1, ss.G + 1):
+                if i == ss.G:
+                    H3 = ss.H1 - ss.H2 * (ss.G - 1)
+                if ss.T1 == 1:
+                    heel_ft = ss.B - ss.L / 12.0
+                    if heel_ft < 0: heel_ft = 0.0
+                    W  = 100.0 * H3 * heel_ft
+                    arm_ft = ss.L / 12.0 + heel_ft / 2.0
+                    Mw = W * arm_ft
+                elif ss.T1 == 2:
+                    heel_ft = ss.L / 12.0
+                    W  = 100.0 * H3 * heel_ft
+                    arm_ft = heel_ft / 2.0
+                    Mw = W * arm_ft
+                else:
+                    heel_ft = (Tftg - ss.T[i]) / 12.0
+                    W  = 100.0 * H3 * heel_ft
+                    arm_ft = ss.L / 12.0 + ss.T[i] / 12.0 + heel_ft / 2.0
+                    Mw = W * arm_ft
+                ss.W5 += W; ss.M5 += Mw
+
             if ss.T1 != 4:
                 ss.M3 = 0.0
                 ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.Pf
-                ss.M6 = ss.M1 + ss.M2 + ss.M5 - ss.M4   # M4 = OTM, subtracted
+                ss.M6 = ss.M1 + ss.M2 + ss.M5 - ss.M4
             else:
                 ss.L1 = ss.B - ss.L / 12.0 - Tftg / 12.0
                 ss.W7 = ss.L1 * ss.H1 * 100.0
