@@ -444,6 +444,8 @@ def gosub_360():
     I = 1
     ss.G = 0
     MAX_DVAL = 30.0
+    MIN_BLOCK_HT = 2.0          # 24-in minimum height per larger block size
+    H_block_start = {2: None, 3: None}   # height when 12" or 16" block first used
 
     while True:
         ss.H = ss.H + ss.H2
@@ -498,7 +500,6 @@ def gosub_360():
                     print(f"  WARNING: No valid section found at H={ss.H:.2f} ft")
 
                 # FIX C: always restore user's wall type
-                # Keep found Dval if successful; restore old Dval if not
                 ss.Cw = save_Cw
                 ss.F2 = save_F2
                 ss.N2 = save_N2
@@ -521,6 +522,27 @@ def gosub_360():
                     if ss.H >= ss.H1 - 0.01:
                         break
                     continue
+
+                # Current block size (I) is insufficient — need to step up.
+                # 24-in minimum rule: if stepping up to 12" (I->2) or 16" (I->3),
+                # record the start height. If we have not yet run this larger block
+                # for >= 2 ft, force it to continue for the remaining height before
+                # allowing a further step-up.
+                next_I = I + 1
+                if next_I in (2, 3) and ss.D[next_I] != 0:
+                    if H_block_start[next_I] is None:
+                        # First time stepping up to this block size
+                        H_block_start[next_I] = ss.H
+                        print(f"    NOTE: Stepping up to {int(ss.D[next_I]+2.5)}-in block at H={ss.H:.2f} ft — min 24-in zone required.")
+                    else:
+                        # Already started this block — check if 24" has been covered
+                        if (ss.H - H_block_start[next_I]) < MIN_BLOCK_HT - 0.01:
+                            # Haven't covered 24" yet — stay on this block size,
+                            # don't step up further; just continue height loop
+                            I = next_I
+                            if ss.H >= ss.H1 - 0.01:
+                                break
+                            continue
                 I += 1
                 if I > 4:
                     print(f"  WARNING: Exhausted all block sizes at H={ss.H:.2f} ft")
