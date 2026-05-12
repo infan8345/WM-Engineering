@@ -44,7 +44,7 @@ def initialize_globals():
     # Scalars
     names_defaults = {
         "P1": "", "P2": "", "P3s": "", "P4s": "", "P5s": "",
-        "H": 0.0, "H1": 0.0, "H2": 0.0, "H3": 0.0, "H4": 0.0,
+        "H": 0.0, "H1": 0.0, "H2": 8.0/12.0, "H3": 0.0, "H4": 0.0,
         "L": 0.0, "L1": 0.0, "L2": 0.0,
         "P": 0.0, "P4": 0.0, "S1": 0.0, "S2": 0.0, "C9": 0.0,
         "Y": 0.0, "C1": 0, "Cw": 0, "T1": 0,
@@ -54,7 +54,7 @@ def initialize_globals():
         "W5": 0.0, "W6": 0.0, "W7": 0.0, "W8": 0.0,
         "M1": 0.0, "M2": 0.0, "M3": 0.0, "M4": 0.0,
         "M5": 0.0, "M6": 0.0, "M7": 0.0, "M8": 0.0,
-        "X": 0.0, "S": 0.0, "E": 0.0, "E1": 0.0,
+        "X": 0.0, "S": 0.0, "E": 8.0, "E1": 0.0,
         "E2": 0, "K1": 0, "Areq": 0.0, "A2": 0.0,
         "P1s": 0.0, "K": 0.0, "J": 0.0,
         "A1": 0.0, "S9": 0.0, "D9": 0,
@@ -199,11 +199,11 @@ def gosub_140():
         ss.C1 = st.selectbox("SLAB ON GRADE (0 OR 1)", [0, 1], index=ss.C1)
 
         # FIX B: reflect current H2 back into widget
-        H2_in_default = (ss.H2 * 12.0) if ss.H2 else 96.0
+        H2_in_default = (ss.H2 * 12.0) if ss.H2 else 8.0
         H2_in = st.number_input("WALL HEIGHT INCREMENT (IN)", value=H2_in_default)
         ss.H2 = H2_in / 12.0
 
-        ss.E = st.number_input("TOE (IN)", value=ss.E)
+        ss.E = st.number_input("TOE (IN)", value=ss.E if ss.E else 8.0)
 
         # FIX A: derive index from current KERN_MODE — preserves user choice
         kern_index = 0 if ss.KERN_MODE == 1 else 1
