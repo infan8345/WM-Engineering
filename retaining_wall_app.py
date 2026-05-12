@@ -600,37 +600,58 @@ def gosub_830():
             ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.P3 + ss.W7 + ss.W8
             ss.M6 = ss.M1 + ss.M2 + M3_local + ss.M5 + ss.M7 + ss.M8 - ss.M4
 
-        while True:
-            ss.X = ss.M6 / ss.W6
+        def _recalc_totals():
+            """Recompute W2/M2/W6/M6 after B changes."""
+            ss.W2 = 12.5 * Tftg * ss.B
+            ss.M2 = ss.W2 * ss.B / 2.0
+            if ss.T1 != 4:
+                ss.M3 = ss.P3 * (ss.L / 12.0)
+                ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.P3
+                ss.M6 = ss.M1 + ss.M2 + ss.M3 + ss.M4 + ss.M5
+            else:
+                ss.L1 = ss.B - ss.L / 12.0 - Tftg / 12.0
+                ss.W7 = ss.L1 * ss.H1 * 100.0
+                ss.M7 = ss.W7 * (ss.L1 / 2.0 + ss.L / 12.0 + Tftg / 12.0)
+                M3_loc = ss.P3 * (ss.L / 12.0)
+                ss.M3 = M3_loc
+                ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.P3 + ss.W7 + ss.W8
+                ss.M6 = ss.M1 + ss.M2 + M3_loc + ss.M5 + ss.M7 + ss.M8 - ss.M4
 
+        def _widen():
+            ss.B = int(12 * ss.B + 2) / 12.0
+            _recalc_totals()
+
+        _recalc_totals()
+
+        while True:
+            ss.X = ss.M6 / ss.W6 if ss.W6 != 0 else 0
+
+            # --- eccentricity / kern check ---
             if ss.KERN_MODE == 1:
                 if ss.X <= 0 or ss.X >= ss.B:
-                    ss.B = int(12 * ss.B + 2) / 12.0
-                    ss.W2 = 12.5 * Tftg * ss.B
-                    ss.M2 = ss.W2 * ss.B / 2.0
-                    if ss.T1 != 4:
-                        ss.M3 = ss.P3 * (ss.L / 12.0)
-                        ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.P3
-                        ss.M6 = ss.M1 + ss.M2 + ss.M3 + ss.M4 + ss.M5
-                    else:
-                        ss.L1 = ss.B - ss.L / 12.0 - Tftg / 12.0
-                        ss.W7 = ss.L1 * ss.H1 * 100.0
-                        ss.M7 = ss.W7 * (ss.L1 / 2.0 + ss.L / 12.0 + Tftg / 12.0)
-                        M3_local = ss.P3 * (ss.L / 12.0)
-                        ss.M3 = M3_local
-                        ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.P3 + ss.W7 + ss.W8
-                        ss.M6 = ss.M1 + ss.M2 + M3_local + ss.M5 + ss.M7 + ss.M8 - ss.M4
-                    continue
-                break
-
+                    _widen(); continue
             else:
-                if ss.X < ss.B / 3.0:
-                    ss.B = int(12 * ss.B + 2) / 12.0
-                    continue
-                if ss.X > 2 * ss.B / 3.0:
-                    ss.B = int(12 * ss.B + 2) / 12.0
-                    continue
-                break
+                if ss.X < ss.B / 3.0 or ss.X > 2 * ss.B / 3.0:
+                    _widen(); continue
+
+            # --- S.F. overturning >= 1.5 ---
+            OTM = ss.M4
+            RM  = ss.M6 - OTM
+            if OTM > 0 and RM / OTM < 1.5:
+                _widen(); continue
+
+            # --- S.F. sliding >= 1.5 ---
+            # Lateral force = P3 (resultant earth pressure, already in lbs)
+            # Resistance    = friction (W6 * C9) + passive (P4 * Tftg_ft * B)
+            Tftg_ft = Tftg / 12.0
+            friction  = ss.W6 * ss.C9
+            passive   = ss.P4 * Tftg_ft * ss.B
+            lateral   = ss.P3
+            if lateral > 0 and (friction + passive) / lateral < 1.5:
+                _widen(); continue
+
+            # all checks passed
+            break
 
         break
 
@@ -672,6 +693,20 @@ def gosub_1400():
         print(f"    S.F. OVERT. = {SF_OT:.2f}", "  ** OK **" if SF_OT >= 1.5 else "  ** NG — S.F. < 1.5 **")
     else:
         print("    S.F. OVERT. = N/A")
+
+    # S.F. sliding
+    Tftg_ft  = ss.T[ss.G] / 12.0 if ss.T[ss.G] >= 12 else 1.0
+    friction  = ss.W6 * ss.C9
+    passive   = ss.P4 * Tftg_ft * ss.B
+    lateral   = ss.P3
+    if lateral > 0:
+        SF_SL = (friction + passive) / lateral
+        print(f"    FRICTION RES= {friction:.2f} (LB)")
+        print(f"    PASSIVE RES = {passive:.2f} (LB)")
+        print(f"    LATERAL     = {lateral:.2f} (LB)")
+        print(f"    S.F. SLIDE  = {SF_SL:.2f}", "  ** OK **" if SF_SL >= 1.5 else "  ** NG — S.F. < 1.5 **")
+    else:
+        print("    S.F. SLIDE  = N/A")
 
 # ------------------------------------------------------------
 # gosub_1610 — MOMENT BREAKDOWN
