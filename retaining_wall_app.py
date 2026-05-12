@@ -691,12 +691,14 @@ def gosub_1700():
 
 st.title("Retaining Wall Program — Streamlit Version")
 
+# Always render sidebar inputs on every rerun so the widgets stay visible
+gosub_140()
+
 col1, col2, col3 = st.columns(3)
 col4, col5, col6 = st.columns(3)
 
 if col1.button("Run Input Block"):
     gosub_1580()
-    gosub_140()
     gosub_5000()
     gosub_print_header()
 
