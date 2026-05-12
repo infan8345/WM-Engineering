@@ -58,7 +58,7 @@ def initialize_globals():
         "E2": 0, "K1": 0, "Areq": 0.0, "A2": 0.0,
         "P1s": 0.0, "K": 0.0, "J": 0.0,
         "A1": 0.0, "S9": 0.0, "D9": 0,
-        "R": "", "P3": 0.0, "Pf": 0.0, "P9": 0.0, "X9": 0.0,
+        "R": "", "P3": 0.0, "Pf": 0.0, "Mpf": 0.0, "P9": 0.0, "X9": 0.0,
         "B": 0.0, "M": 0.0, "I1": 0, "I2": 0,
         "TABLE_ROWS": [],
         "_silent": False,
@@ -680,17 +680,20 @@ def gosub_830():
         # M6 = total resisting moment about toe (ft-lb/ft):
         #   M4 is the overturning moment — included so X = M6/W6 gives
         #   the correct resultant location measured from toe
+        # Mpf = moment of back-face friction about toe
+        # Pf acts vertically downward at wall back face (arm = L/12 ft from toe)
+        ss.Mpf = ss.Pf * (ss.L / 12.0)
         if ss.T1 != 4:
-            ss.M3 = 0.0   # no separate passive moment — overturning is in M4
+            ss.M3 = 0.0
             ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.Pf
-            ss.M6 = ss.M1 + ss.M2 + ss.M5 - ss.M4   # M4 = OTM, subtracted
+            ss.M6 = ss.M1 + ss.M2 + ss.M5 + ss.Mpf - ss.M4
         else:
             ss.L1 = ss.B - ss.L / 12.0 - Tftg / 12.0
             ss.W7 = ss.L1 * ss.H1 * 100.0
             ss.M7 = ss.W7 * (ss.L1 / 2.0 + ss.L / 12.0 + Tftg / 12.0)
             ss.M3 = 0.0
             ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.Pf + ss.W7 + ss.W8
-            ss.M6 = ss.M1 + ss.M2 + ss.M5 + ss.M7 + ss.M8 - ss.M4
+            ss.M6 = ss.M1 + ss.M2 + ss.M5 + ss.Mpf + ss.M7 + ss.M8 - ss.M4
 
         def _recalc_totals():
             """Recompute W2/M2/W5/M5/W6/M6 after B changes."""
@@ -721,17 +724,18 @@ def gosub_830():
                     Mw = W * arm_ft
                 ss.W5 += W; ss.M5 += Mw
 
+            ss.Mpf = ss.Pf * (ss.L / 12.0)
             if ss.T1 != 4:
                 ss.M3 = 0.0
                 ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.Pf
-                ss.M6 = ss.M1 + ss.M2 + ss.M5 - ss.M4
+                ss.M6 = ss.M1 + ss.M2 + ss.M5 + ss.Mpf - ss.M4
             else:
                 ss.L1 = ss.B - ss.L / 12.0 - Tftg / 12.0
                 ss.W7 = ss.L1 * ss.H1 * 100.0
                 ss.M7 = ss.W7 * (ss.L1 / 2.0 + ss.L / 12.0 + Tftg / 12.0)
                 ss.M3 = 0.0
                 ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.Pf + ss.W7 + ss.W8
-                ss.M6 = ss.M1 + ss.M2 + ss.M5 + ss.M7 + ss.M8 - ss.M4
+                ss.M6 = ss.M1 + ss.M2 + ss.M5 + ss.Mpf + ss.M7 + ss.M8 - ss.M4
 
         def _widen():
             ss.B = int(12 * ss.B + 2) / 12.0
@@ -839,7 +843,7 @@ def gosub_1400():
         print(f"    ECCENTRICITY    = {ss.E1:.2f}{ss.P2}  ({kern_label2} = {kern_limit:.2f}{ss.P2})  ** {kern_status} **")
 
     OTM = ss.M4
-    RM  = ss.M6 + ss.M4   # M6 = RM - OTM, so RM = M6 + M4
+    RM  = ss.M6 + ss.M4   # RM = M1+M2+M5+Mpf (Mpf already in M6)
     if OTM > 0:
         SF_OT = RM / OTM
         print(f"    RESIST. MOM = {RM:.2f} (FT-LB)")
@@ -874,7 +878,7 @@ def gosub_1610():
     print(f"    WALL       {ss.W1:10.2f}  {ss.M1:10.2f}")
     print(f"    FTG.       {ss.W2:10.2f}  {ss.M2:10.2f}")
     print(f"    HEEL EARTH {ss.W5:10.2f}  {ss.M5:10.2f}")
-    print(f"    BACK FRIC. {ss.Pf:10.2f}  {'(horiz)':>10}  P3xC9 wall rubbing (vertical component in W6)")
+    print(f"    BACK FRIC. {ss.Pf:10.2f}  {ss.Mpf:10.2f}  P3x0.3 wall rubbing (vert., arm={ss.L/12:.2f}ft from toe)")
     print(f"    HEEL SOIL2 {ss.W7:10.2f}  {ss.M7:10.2f}")
     print(f"    HEEL SOIL3 {ss.W8:10.2f}  {ss.M8:10.2f}")
     print(f"    O.T.M.     {'---':>10}  {ss.M4:10.2f}  lateral earth OTM (subtracted from M6)")
