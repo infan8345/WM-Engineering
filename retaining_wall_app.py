@@ -438,23 +438,113 @@ def gosub_620():
 # Fix: save and restore Cw/F2/N2 around the fallback block.
 # ------------------------------------------------------------
 def gosub_360():
+    """
+    Two-pass moment + steel loop.
+
+    PASS 1: Walk top-down (H=0 -> H1) and record, for each height
+            increment, the minimum block index required to satisfy
+            the moment demand.  No output is produced.
+
+    PASS 2: Enforce the 24-inch minimum zone rule:
+            When a larger block size (12" or 16" CMU, or concrete)
+            is first needed at some height H_step, that block must
+            extend at least 24" (2 ft) downward toward the base.
+            If the zone from H_step to H1 is less than 24", extend
+            the larger block upward until 24" is covered.
+            Then re-run the moment check for each increment using the
+            enforced block index and produce the printed output.
+    """
     ss = st.session_state
+    MIN_ZONE = 2.0   # 24 inches expressed in feet
 
-    ss.H = 0.0
-    I = 1
-    ss.G = 0
-    MAX_DVAL = 30.0
-    MIN_BLOCK_HT = 2.0          # 24-in minimum height per larger block size
-    H_block_start = {2: None, 3: None}   # height when 12" or 16" block first used
-
+    # ----------------------------------------------------------
+    # Build the height increment list (same sequence the loop uses)
+    # ----------------------------------------------------------
+    heights = []
+    h = 0.0
     while True:
-        ss.H = ss.H + ss.H2
-        if ss.H >= ss.H1:
-            ss.H = ss.H1
+        h += ss.H2
+        if h >= ss.H1:
+            h = ss.H1
+            heights.append(round(h, 6))
+            break
+        heights.append(round(h, 6))
 
+    MAX_DVAL = 30.0
+
+    def _find_block_index(h_val):
+        """Return minimum block index I needed at height h_val."""
+        ss.M = ss.S1 * ss.P * h_val * h_val / 2.0 + ss.P * h_val ** 3 / 6.0
+        for idx in range(1, 5):
+            if idx > 4 or ss.D[idx] == 0:
+                return idx   # signals fallback to concrete
+            ss.Dval = ss.D[idx]
+            gosub_510()
+            if ss.K1 == 1:
+                return idx
+            ss.I1 = 7
+            gosub_620()
+            if ss.K1 == 1:
+                return idx
+        return 5   # concrete fallback
+
+    # ----------------------------------------------------------
+    # PASS 1: determine raw block index required at each height
+    # ----------------------------------------------------------
+    raw_idx = []
+    for h_val in heights:
+        raw_idx.append(_find_block_index(h_val))
+
+    # ----------------------------------------------------------
+    # PASS 2: enforce 24-inch minimum zone
+    # Walk list in reverse (base -> top) and propagate larger
+    # block index upward until the 24" zone is satisfied.
+    # ----------------------------------------------------------
+    enforced_idx = list(raw_idx)
+    n = len(heights)
+
+    for j in range(n - 1, -1, -1):
+        if enforced_idx[j] >= 2:          # 12", 16", or concrete needed here
+            # Find the topmost extent of this zone going upward
+            zone_top = j
+            while zone_top > 0 and enforced_idx[zone_top - 1] >= enforced_idx[j]:
+                zone_top -= 1
+            # Height covered by this zone downward to base
+            zone_ht = heights[n - 1] - heights[zone_top] + ss.H2
+            if zone_ht < MIN_ZONE:
+                # Need to extend zone upward by (MIN_ZONE - zone_ht)
+                extra_needed = MIN_ZONE - zone_ht
+                extra_steps  = int(extra_needed / ss.H2) + 1
+                new_top = max(0, zone_top - extra_steps)
+                for k in range(new_top, zone_top):
+                    if enforced_idx[k] < enforced_idx[j]:
+                        enforced_idx[k] = enforced_idx[j]
+
+    # ----------------------------------------------------------
+    # PASS 2 output: run moment loop using enforced block indices
+    # ----------------------------------------------------------
+    ss.H = 0.0
+    ss.G = 0
+    prev_I = 0
+
+    for step, h_val in enumerate(heights):
+        ss.H = h_val
         ss.M = ss.S1 * ss.P * ss.H * ss.H / 2.0 + ss.P * ss.H ** 3 / 6.0
+        I = enforced_idx[step]
 
-        if ss.Cw == 1:
+        if I != prev_I and I >= 2:
+            blk_name = {2: "12-in CMU", 3: "16-in CMU"}.get(I, "Concrete")
+            print(f"    NOTE: {blk_name} zone starts at H={ss.H:.2f} ft (24-in min zone enforced).")
+        prev_I = I
+
+        if ss.Cw == 1 or I > 4 or ss.D[I] == 0:
+            # Concrete path (original fallback)
+            prev_I_cmu = max(1, I - 1)
+            save_Cw, save_F2, save_N2, save_Dval = ss.Cw, ss.F2, ss.N2, ss.Dval
+            ss.Dval = ss.D[prev_I_cmu] if (prev_I_cmu <= 4 and ss.D[prev_I_cmu] != 0) else 5.5
+            ss.Cw = 1
+            ss.F2 = 900.0
+            ss.N2 = 11
             found = False
             while ss.Dval <= MAX_DVAL:
                 gosub_510()
@@ -467,88 +557,22 @@ def gosub_360():
                     found = True
                     break
                 ss.Dval += 1.0
-
             if not found:
-                print(f"  WARNING: No valid concrete section found at H={ss.H:.2f} ft")
-
-            if ss.H >= ss.H1 - 0.01:
-                break
-
+                print(f"  WARNING: No valid section found at H={ss.H:.2f} ft")
+            ss.Cw  = save_Cw
+            ss.F2  = save_F2
+            ss.N2  = save_N2
+            if not found:
+                ss.Dval = save_Dval
         else:
-            if I > 4 or ss.D[I] == 0:
-                prev_I = max(1, I - 1)
-                # FIX C: save user wall-type before running concrete fallback
-                save_Cw, save_F2, save_N2, save_Dval = ss.Cw, ss.F2, ss.N2, ss.Dval
-                ss.Dval = ss.D[prev_I] if ss.D[prev_I] != 0 else 5.5
-                ss.Cw   = 1
-                ss.F2   = 900.0
-                ss.N2   = 11
-                found = False
-                while ss.Dval <= MAX_DVAL:
-                    gosub_510()
-                    if ss.K1 == 1:
-                        found = True
-                        break
-                    ss.I1 = 7
-                    gosub_620()
-                    if ss.K1 == 1:
-                        found = True
-                        break
-                    ss.Dval += 1.0
-
-                if not found:
-                    print(f"  WARNING: No valid section found at H={ss.H:.2f} ft")
-
-                # FIX C: always restore user's wall type
-                ss.Cw = save_Cw
-                ss.F2 = save_F2
-                ss.N2 = save_N2
-                if not found:
-                    ss.Dval = save_Dval
-
-                if ss.H >= ss.H1 - 0.01:
-                    break
-
-            else:
-                ss.Dval = ss.D[I]
-                gosub_510()
-                if ss.K1 == 1:
-                    if ss.H >= ss.H1 - 0.01:
-                        break
-                    continue
+            # CMU path — use enforced block index
+            ss.Dval = ss.D[I]
+            gosub_510()
+            if ss.K1 == 0:
                 ss.I1 = 7
                 gosub_620()
-                if ss.K1 == 1:
-                    if ss.H >= ss.H1 - 0.01:
-                        break
-                    continue
-
-                # Current block size (I) is insufficient — need to step up.
-                # 24-in minimum rule: if stepping up to 12" (I->2) or 16" (I->3),
-                # record the start height. If we have not yet run this larger block
-                # for >= 2 ft, force it to continue for the remaining height before
-                # allowing a further step-up.
-                next_I = I + 1
-                if next_I in (2, 3) and ss.D[next_I] != 0:
-                    if H_block_start[next_I] is None:
-                        # First time stepping up to this block size
-                        H_block_start[next_I] = ss.H
-                        print(f"    NOTE: Stepping up to {int(ss.D[next_I]+2.5)}-in block at H={ss.H:.2f} ft — min 24-in zone required.")
-                    else:
-                        # Already started this block — check if 24" has been covered
-                        if (ss.H - H_block_start[next_I]) < MIN_BLOCK_HT - 0.01:
-                            # Haven't covered 24" yet — stay on this block size,
-                            # don't step up further; just continue height loop
-                            I = next_I
-                            if ss.H >= ss.H1 - 0.01:
-                                break
-                            continue
-                I += 1
-                if I > 4:
-                    print(f"  WARNING: Exhausted all block sizes at H={ss.H:.2f} ft")
-                    if ss.H >= ss.H1 - 0.01:
-                        break
-                continue
+            if ss.K1 == 0:
+                print(f"  WARNING: Block index {I} still fails at H={ss.H:.2f} ft")
 
 # ------------------------------------------------------------
 # gosub_1205 — EARTH PRESSURE BLOCK
