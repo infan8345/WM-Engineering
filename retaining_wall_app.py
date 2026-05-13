@@ -1,1049 +1,719 @@
-import streamlit as st
+# =============================================================================
+# RETAINING WALL PROGRAM  (original: 2-14-85)
+# Python conversion — fully corrected  Rev-3
+# =============================================================================
+#
+# BUGS FIXED (Rev-3 adds fixes 17 and 18):
+#
+#  1.  S1 (surcharge) defaults to 0.0 on empty Enter.
+#  2.  C1 (slab on grade) defaults to 0 on empty Enter.
+#  3.  Dval initialised to D[1] for masonry path.
+#  4.  gosub_510: computed stress stored in Fc, never clobbers F (f'c).
+#  5.  gosub_620: bar-selection loop rewritten (was inverted).
+#  6.  gosub_670: bar+spacing selection restructured.
+#  7.  gosub_1205: earth-pressure corrected.
+#      P3 = P*S1*H4 + P*H4²/2         (total lateral force)
+#      M4 = P*S1*H4²/2 + P*H4³/6       (OTM about toe — triangular: /6 not /3)
+#      Note: some versions use /3 which is 2× too large.
+#  8.  gosub_830: W1/M1 computed once; W5/M5 moved inside B-loop
+#      (heel-soil weight depends on B).
+#  9.  gosub_830: M6 = Σ(vertical moments) − M4  (net stabilising).
+# 10.  gosub_830: W6 = vertical loads only; P3 is horizontal.
+# 11.  gosub_1400: sliding uses P3 directly; key-depth formula corrected.
+# 12.  gosub_360: masonry block-size index reset to 1 at each height.
+# 13.  gosub_360: masonry→concrete fallback seeds Dval from largest block.
+# 14.  Unit consistency: E and T[] in inches; ÷12 when feet needed.
+# 15.  HEEL SOIL BUG (root cause of B=11.45 instead of 6.28):
+#      Moment arm for T1=1 heel soil was heel_ft/2 (measured from heel edge).
+#      Correct arm = L/12 + heel_ft/2 (measured from TOE).
+#      Heel soil is ONE prism (height H1, width B−L/12), not per-increment.
+#      W5/M5 moved inside B-iteration loop, computed once per B trial.
+# 16.  INPUT RULE: all prompts show default; Enter = use default (=0 where
+#      applicable).  "Enter = x = 0" means x defaults to 0 on blank Enter.
+#
+# 17.  Tftg (footing thickness) comment clarified.
+#      Tftg = max(T[G], 12) in INCHES — T[G] is already inches.
+#      Streamlit bug: using H1 (feet) as Tftg inches gives Tftg=10 for
+#      H1=10 ft — structurally wrong and drives B grossly oversized.
+#
+# 18.  gosub_1205: M4 OTM formula corrected from P*H4³/3 to P*H4³/6.
+#      Triangular resultant P*H4²/2 acts at H4/3 from base → OTM = P*H4³/6.
+#      The /3 formula (introduced in Rev-2 Fix 7) was 2× too large, causing
+#      the footing to be over-sized to resist a phantom overturning moment.
+#      The original 1985 BASIC correctly used /6.
+#
+# =============================================================================
 
-# ============================================================
-#  RETAINING WALL PROGRAM — STREAMLIT VERSION (FINAL CLEAN)
-# ============================================================
+import math
 
-st.set_page_config(
-    page_title="Retaining Wall Program",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+# ---------------------------------------------------------------------------
+# GLOBAL ARRAYS  (1-based; index 0 unused)
+# ---------------------------------------------------------------------------
+T  = [0.0] * 61   # wall thickness at each height increment (inches)
+D  = [0.0] * 5    # masonry block net depths (inches)
+C  = [0.0] * 61   # wall-type flag (0=masonry, 1=concrete)
+A  = [0.0] * 8    # rebar areas per foot of wall (in²/ft)
 
-# Sidebar width lock
-st.markdown(
-    """
-    <style>
-    [data-testid="stSidebar"] {
-        min-width: 350px;
-        max-width: 350px;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+# ---------------------------------------------------------------------------
+# GLOBAL SCALARS
+# ---------------------------------------------------------------------------
+P1 = P2 = P3s = P4s = P5s = ""
+H  = H1 = H2 = H3 = H4 = 0.0
+L  = L1 = 0.0          # in inches
+P  = P4 = S1 = S2 = C9 = 0.0
+Y  = 0.0
+C1 = 0
+Cw = 0
+T1 = 0
+L2 = 0.0
+Dval = 0.0
+F  = F1 = F2 = 0.0
+Fc = 0.0               # computed section stress (never clobbers F)
+N1 = N2 = 0
+G  = 0
+W1 = W2 = W3 = W4 = W5 = W6 = W7 = W8 = 0.0
+M1 = M2 = M3 = M4 = M5 = M6 = M7 = M8 = 0.0
+X  = S = E = E1 = 0.0
+K1 = 0
+Areq = A2 = 0.0
+P1s  = 0.0
+K  = J  = 0.0
+A1 = 0.0
+S9 = 0.0
+D9 = 0
+P3 = 0.0
+P9 = X9 = 0.0
+B  = 0.0
+M  = 0.0
+I1 = 0
+Tftg = 12.0
+TABLE_ROWS = []
+KERN_MODE  = 1    # 1=allow outside kern, 2=force inside kern
 
-# ------------------------------------------------------------
-# Helper: initialize a variable in session_state if missing
-# ------------------------------------------------------------
-def init(name, value):
-    if name not in st.session_state:
-        st.session_state[name] = value
 
-# ------------------------------------------------------------
-# Initialize ALL global variables exactly as original program
-# ------------------------------------------------------------
-def initialize_globals():
+# =============================================================================
+# HELPERS
+# =============================================================================
+def _inp(prompt, default):
+    """Prompt with default shown; Enter returns default."""
+    if isinstance(default, float) and default == 0.0:
+        shown = "0"
+    elif isinstance(default, int) and default == 0:
+        shown = "0"
+    else:
+        shown = str(default)
+    s = input(f"{prompt} [{shown}] ")
+    if not s.strip():
+        return default
+    try:
+        return type(default)(s)
+    except ValueError:
+        return type(default)(float(s))
 
-    # Arrays
-    init("T", [0.0] * 61)
-    init("D", [0.0] * 5)
-    init("C", [0.0] * 61)
-    init("A", [0.0] * 8)
 
-    # Scalars
-    names_defaults = {
-        "P1": "", "P2": "", "P3s": "", "P4s": "", "P5s": "",
-        "H": 0.0, "H1": 0.0, "H2": 8.0/12.0, "H3": 0.0, "H4": 0.0,
-        "L": 0.0, "L1": 0.0, "L2": 0.0,
-        "P": 0.0, "P4": 0.0, "S1": 0.0, "S2": 0.0, "C9": 0.0,
-        "Y": 0.0, "C1": 0, "Cw": 0, "T1": 0,
-        "Dval": 0.0, "F": 0.0, "F1": 0.0, "F2": 0.0,
-        "N1": 0, "N2": 0, "G": 0,
-        "W1": 0.0, "W2": 0.0, "W3": 0.0, "W4": 0.0,
-        "W5": 0.0, "W6": 0.0, "W7": 0.0, "W8": 0.0,
-        "M1": 0.0, "M2": 0.0, "M3": 0.0, "M4": 0.0,
-        "M5": 0.0, "M6": 0.0, "M7": 0.0, "M8": 0.0,
-        "X": 0.0, "S": 0.0, "E": 8.0, "E1": 0.0,
-        "E2": 0, "K1": 0, "Areq": 0.0, "A2": 0.0,
-        "P1s": 0.0, "K": 0.0, "J": 0.0,
-        "A1": 0.0, "S9": 0.0, "D9": 0,
-        "R": "", "P3": 0.0, "Pf": 0.0, "Mpf": 0.0, "P9": 0.0, "X9": 0.0,
-        "B": 0.0, "M": 0.0, "I1": 0, "I2": 0,
-        "TABLE_ROWS": [],
-        "_silent": False,
-        "KERN_MODE": 1,
-    }
-
-    for name, value in names_defaults.items():
-        init(name, value)
-
-# ------------------------------------------------------------
-# Initialize block sizes and rebar areas
-# ------------------------------------------------------------
-def initialize_block_and_rebar():
-    ss = st.session_state
-
-    ss.D[1] = 5.5
-    ss.D[2] = 0.0   # 12-in block off by default
-    ss.D[3] = 0.0   # 16-in block off by default
-    ss.D[4] = 0.0
-
-    ss.A[1] = 0.10
-    ss.A[2] = 0.15
-    ss.A[3] = 0.23
-    ss.A[4] = 0.30
-    ss.A[5] = 0.47
-    ss.A[6] = 0.66
-    ss.A[7] = 0.90
-
-    ss.P1 = " (IN)"
-    ss.P2 = " (FT)"
-    ss.P3s = " (PSF)"
-    ss.P4s = " (LB)"
-    ss.P5s = " (LB/CF)"
-
-# ------------------------------------------------------------
-# One-time initialization guard
-# ------------------------------------------------------------
-if "initialized" not in st.session_state:
-    st.session_state.initialized = False
-
-if not st.session_state.initialized:
-    initialize_globals()
-    initialize_block_and_rebar()
-    st.session_state.initialized = True
-
-# ------------------------------------------------------------
-# FIX D: Output buffering — persists across reruns via
-# session_state. print() appends to output_log; the display
-# block at the bottom renders the full log on every rerun.
-# Original code used st.text() directly inside button handlers
-# which caused output to vanish on the very next rerun.
-# ------------------------------------------------------------
-if "output_log" not in st.session_state:
-    st.session_state.output_log = []
-
-def print(*args, **kwargs):
-    sep = kwargs.get("sep", " ")
-    end = kwargs.get("end", "\n")
-    text = sep.join(str(a) for a in args) + end
-    st.session_state.output_log.append(text)
-
-# ------------------------------------------------------------
-# gosub_1580 — Program Title
-# ------------------------------------------------------------
+# =============================================================================
+# 1580  PROGRAM TITLE
+# =============================================================================
 def gosub_1580():
-    print("\n\n\nRETAINING WALL PROGRAM")
-    print("REV. 2-12-84 (Python/Streamlit conversion)")
+    print("\n\nRETAINING WALL PROGRAM")
+    print("REV. 2-14-85  (Python — Rev-3 corrected)")
 
-# ------------------------------------------------------------
-# gosub_140 — INPUT BLOCK (Streamlit sidebar)
-#
-# FIX 1: Called unconditionally at top level (not inside a
-#         button block) so widgets always render on every rerun.
-#
-# FIX A: KERN_MODE selectbox index derived from current value
-#         instead of hardcoded 0 — preserves user's choice.
-#
-# FIX B: All selectboxes derive their index from current
-#         session_state so nothing resets on rerun:
-#         - TYPE OF WALL index from ss.T1
-#         - CONT. INSPECTION index from ss.N1
-#         - 12-IN BLOCK: sets D[2]=9.5 or 0.0 from selectbox
-#         - 16-IN BLOCK: sets D[3]=13.5 or 0.0 from selectbox
-#         - WALL T widget reflects current ss.Dval
-#         - WALL HEIGHT INCREMENT reflects current ss.H2
-# ------------------------------------------------------------
+
+# =============================================================================
+# 140  INPUT
+# =============================================================================
 def gosub_140():
-    ss = st.session_state
+    global T1, L2, H1, P, S2, C9, P4, S1, Cw, N1, F1, F, F2, N2
+    global Dval, Y, C1, H2, E, D, KERN_MODE
 
-    with st.sidebar:
-        st.header("Input Parameters")
+    T1 = int(input("TYPE OF WALL (1, 2, 4) "))
+    L2 = float(input("GROUND SLOPE (H:V)  (X:1) "))
+    H1 = float(input("RETAINING WALL HT. (FT) "))
 
-        # TYPE OF WALL — derive index from current T1 value
-        t1_options = [1, 2, 4]
-        t1_index = t1_options.index(ss.T1) if ss.T1 in t1_options else 0
-        ss.T1 = st.selectbox("TYPE OF WALL", t1_options, index=t1_index)
+    P  = _inp("EQUIV. FLUID PRESSURE (#/CF)",  30.0)
+    S2 = _inp("ALLOW. SOIL BEARING (PSF)",    1000.0)
+    C9 = _inp("FRICTION COEFF",                 0.4)
+    P4 = _inp("ALLOW. PASSIVE (PSF/FT)",        300.0)
+    S1 = _inp("SURCHARGE (FT equiv) [Enter=x=0]", 0.0)  # FIX 1 / FIX 16
 
-        ss.L2 = st.number_input("GROUND SLOPE (H:V) (X:1)", value=ss.L2)
-        ss.H1 = st.number_input("RETAINING WALL HEIGHT (FT)", value=ss.H1)
-        ss.P  = st.number_input("EQUIV. FLUID PRESSURE (#/CF)", value=ss.P if ss.P else 30.0)
-        ss.S2 = st.number_input("ALLOWABLE SOIL BEARING (PSF)", value=ss.S2 if ss.S2 else 1000.0)
-        ss.C9 = st.number_input("FRICTION COEFF", value=ss.C9 if ss.C9 else 0.4)
-        ss.P4 = st.number_input("ALLOWABLE PASSIVE (PSF)", value=ss.P4 if ss.P4 else 300.0)
-        ss.S1 = st.number_input("SURCHARGE (FT)", value=ss.S1)
+    Cw = int(input("CONC. WALL? (0=masonry  1=concrete) "))
 
-        ss.Cw = st.selectbox("CONC. WALL (0=Masonry, 1=Concrete)", [0, 1], index=ss.Cw)
-
-        if ss.Cw == 0:
-            # FIX B: derive inspection index from current N1
-            cur_insp = 1 if ss.N1 == 20 else 0
-            I = st.selectbox(
-                "CONT. INSPECTION (0=No → F'm≤333psi, 1=Yes → F'm≤500psi)",
-                [0, 1], index=cur_insp
-            )
-            if I == 1:
-                ss.N1 = 20
-                ss.F1 = 500.0
-            else:
-                ss.N1 = 40
-                ss.F1 = 333.0
-            if I == 0:
-                st.caption("⚠️ No cont. inspection: F'm limited to 333 psi. If block size is insufficient, enable inspection or increase block size.")
-
-            # FIX B: set D[2] explicitly from selectbox — never zero blindly
-            # Default 0 = not used; user selects 1 to enable
-            cur_12 = 1 if ss.D[2] != 0.0 else 0
-            I = st.selectbox("12-IN BLOCK (0=No, 1=Yes)", [0, 1], index=cur_12)
-            ss.D[2] = 9.5 if I == 1 else 0.0
-
-            # Default 0 = not used; user selects 1 to enable
-            cur_16 = 1 if ss.D[3] != 0.0 else 0
-            I = st.selectbox("16-IN BLOCK (0=No, 1=Yes)", [0, 1], index=cur_16)
-            ss.D[3] = 13.5 if I == 1 else 0.0
-
+    if Cw == 0:
+        I = int(input("CONT. INSPECTION (0 OR 1) "))
+        if I == 1:
+            N1 = 20;  F1 = 500.0
         else:
-            ss.F  = st.number_input("CONCRETE F'C (PSI)", value=ss.F if ss.F else 2000.0)
-            ss.F2 = 0.45 * ss.F
-            ss.N2 = int(29000 / (57 * (ss.F ** 0.5)))
-            # FIX B: reflect current Dval back into widget
-            wall_t_default = (ss.Dval + 2.5) if ss.Dval else 8.0
-            I = st.number_input("WALL T (IN)", value=wall_t_default)
-            ss.Dval = I - 2.5
+            N1 = 40;  F1 = 250.0
+        I = int(input("USE 12-IN BLOCK? (0 OR 1) "))
+        if I != 1:
+            D[2] = 0.0
+        I = int(input("USE 16-IN BLOCK? (0 OR 1) "))
+        if I != 1:
+            D[3] = 0.0
+        Dval = D[1]   # FIX 3
 
-        ss.Y  = st.number_input("STEEL ALLOWABLE (KSI)", value=ss.Y if ss.Y else 20.0)
-        ss.C1 = st.selectbox("SLAB ON GRADE (0 OR 1)", [0, 1], index=ss.C1)
+    else:
+        F     = _inp("CONC. F'C (PSI)",  2000.0)
+        F2    = 0.45 * F
+        N2    = int(29000.0 / (57.0 * math.sqrt(F)))
+        wall_T = _inp("WALL T (IN)", 8.0)
+        Dval  = wall_T - 2.5
 
-        # FIX B: reflect current H2 back into widget
-        H2_in_default = (ss.H2 * 12.0) if ss.H2 else 8.0
-        H2_in = st.number_input("WALL HEIGHT INCREMENT (IN)", value=H2_in_default)
-        ss.H2 = H2_in / 12.0
+    Y  = _inp("STEEL ALLOWABLE (KSI)", 20.0)
+    C1 = _inp("SLAB ON GRADE (0 OR 1) [Enter=0]", 0)    # FIX 2 / FIX 16
+    H2 = _inp("WALL HT. INCREMENT (IN)", 8.0) / 12.0
+    E  = _inp("TOE (IN) [Enter=x=0]", 0.0)               # FIX 14/16: stored in inches
 
-        ss.E = st.number_input("TOE (IN)", value=ss.E if ss.E else 8.0)
+    print("ECCENTRICITY MODE:")
+    print("  1 = ALLOW E OUTSIDE KERN  (triangular pressure)")
+    print("  2 = FORCE E INSIDE KERN   (footing sized until E <= B/6)")
+    s = input("SELECT (1 OR 2)  [Enter=1] ")
+    KERN_MODE = 2 if s.strip() == "2" else 1
 
-        # FIX A: derive index from current KERN_MODE — preserves user choice
-        kern_index = 0 if ss.KERN_MODE == 1 else 1
-        kern_sel = st.selectbox(
-            "ECCENTRICITY MODE",
-            ["ALLOW OUTSIDE KERN (1)", "FORCE INSIDE KERN (2)"],
-            index=kern_index
+
+# =============================================================================
+# 510  STEEL AREA CALCULATION
+# =============================================================================
+def gosub_510():
+    """FIX 4: stress stored in Fc, never in F."""
+    global Areq, A2, P1s, K, J, Fc, K1
+    global Cw, N1, N2, Dval, M, Y, F1, F2
+
+    if Dval <= 0:
+        K1 = 0
+        return
+
+    Areq = (M * 12.0) / (Y * (7.0 / 8.0) * Dval * 1000.0)
+    A2   = Areq
+
+    P1s  = (N1 if Cw == 0 else N2) * Areq / (12.0 * Dval)
+    K    = math.sqrt(2.0 * P1s + P1s ** 2) - P1s
+    J    = 1.0 - K / 3.0
+    denom = K * J * Dval ** 2
+    Fc   = (M * 2.0 / denom) if denom != 0 else 1e9   # FIX 4
+
+    K1 = 0
+    allowable = F1 if Cw == 0 else F2
+    if Fc < allowable:
+        gosub_670()
+        K1 = 1
+
+
+# =============================================================================
+# 620  BAR SELECTION
+# =============================================================================
+def gosub_620():
+    """FIX 5: find smallest bar whose area >= Areq."""
+    global I1, Areq, K1
+
+    for i in range(1, I1 + 1):
+        if A[i] >= Areq * 0.98:
+            Areq = A[i]
+            gosub_510()
+            return
+    # No bar large enough; K1 stays 0
+
+
+# =============================================================================
+# 670  TABLE ROW PRINT
+# =============================================================================
+def gosub_670():
+    """FIX 6: bar+spacing selection restructured."""
+    global G, T, C, Dval, Areq, H, Fc, A1, S9, D9, Cw, TABLE_ROWS
+
+    G    += 1
+    T[G]  = Dval + 2.5
+    C[G]  = Cw
+
+    if 0.15 <= Areq <= 0.23:
+        A1 = math.pi * (5.0 / 8.0) ** 2 / 4.0   # #5
+        D9 = 5
+        S9 = min(A1 * 12.0 / Areq, 16.0)
+    else:
+        A1 = best_A1 = 0.0
+        D9 = best_D9 = 4
+        S9 = best_S9 = 4.0
+        for bar in range(4, 9):
+            area_bar = math.pi * (bar / 8.0) ** 2 / 4.0
+            sp       = area_bar * 12.0 / Areq if Areq > 0 else 99
+            if sp >= 8.0:
+                A1 = area_bar; D9 = bar; S9 = sp
+                break
+            best_A1 = area_bar; best_D9 = bar; best_S9 = sp
+        else:
+            A1 = best_A1; D9 = best_D9; S9 = best_S9
+        if S9 >= 8.0:
+            S9 = int(S9 / 2.0) * 2.0
+
+    if H >= 1.9:
+        wall_label = "CONC." if C[G] == 1 else "BLK. "
+        rebar      = f"#{D9}@{int(S9):3d}"
+        A_use      = A1 * 12.0 / S9 if S9 > 0 else A1
+        row = (
+            f"{H:8.2f}"
+            f"{T[G]:8.2f}"
+            f"{Dval:8.2f}"
+            f"{int(M):14d}"
+            f"{Areq:10.3f}"
+            f"{A_use:10.3f}"
+            f"{int(Fc):12d}"
+            f"{rebar:>9}"
+            f"{wall_label:>7}"
         )
-        ss.KERN_MODE = 1 if kern_sel.startswith("ALLOW") else 2
+        TABLE_ROWS.append(row)
+        print(row)
 
-# ------------------------------------------------------------
-# gosub_5000 — placeholder
-# ------------------------------------------------------------
-def gosub_5000():
-    pass
 
-# ------------------------------------------------------------
-# gosub_790 — TABLE HEADER
-# ------------------------------------------------------------
+# =============================================================================
+# 790  TABLE HEADER
+# =============================================================================
 def gosub_790():
     print(
-        f"{'HT(FT)':>8}"
-        f"{'T(IN)':>8}"
-        f"{'D(IN)':>8}"
-        f"{'MOM(FT-LB)':>14}"
-        f"{'A(REQ)':>10}"
-        f"{'A(USE)':>10}"
-        f"{'F\'M(PSI)':>12}"
-        f"{'RE-BAR':>9}"
-        f"{'WALL':>7}"
+        f"{'HT(FT)':>8}{'T(IN)':>8}{'D(IN)':>8}"
+        f"{'MOM(FT-LB)':>14}{'A(REQ)':>10}{'A(USE)':>10}"
+        f"{'F\'M(PSI)':>12}{'RE-BAR':>9}{'WALL':>7}"
     )
     print("-" * 86)
 
-# ------------------------------------------------------------
-# gosub_670 — TABLE ROW PRINT
-# ------------------------------------------------------------
-def gosub_670():
-    ss = st.session_state
-    if getattr(ss, '_silent', False):
-        return   # Pass 1: suppress output and state writes
-    ss.G += 1
-    ss.T[ss.G] = ss.Dval + 2.5
-    ss.C[ss.G] = ss.Cw
 
-    for ss.D9 in range(4, 9):
-        if ss.Areq > 0.23 * 1.02 or ss.Areq < 0.15 / 1.01:
-            ss.A1 = 3.14159 * (ss.D9 / 8.0) ** 2 / 4.0
-            ss.S9 = ss.A1 * 12.0 / ss.Areq
-        else:
-            ss.A1 = 0.31
-            ss.D9 = 5
-            ss.S9 = 16.0
-            break
-        if ss.S9 > 8:
-            break
-
-    if ss.S9 >= 8:
-        ss.S9 = int(ss.S9 / 8.0 + 0.1) * 8
-
-    wall_type = "CONC." if ss.C[ss.G] == 1 else "BLK."
-
-    if ss.H >= 1.9:
-        rebar = f"#{ss.D9}@{int(ss.S9):3d}"
-        row = (
-            f"{ss.H:8.2f}"
-            f"{ss.Dval+2.5:8.2f}"
-            f"{ss.Dval:8.2f}"
-            f"{int(ss.M):14d}"
-            f"{ss.Areq:10.3f}"
-            f"{ss.A1*12/ss.S9:10.3f}"
-            f"{int(ss.F):12d}"
-            f"{rebar:>9}"
-            f"{wall_type:>7}"
-        )
-        ss.TABLE_ROWS.append(row)
-        print(row)
-
-# ------------------------------------------------------------
-# gosub_print_header — prints design parameters + table header
-# ------------------------------------------------------------
-def gosub_print_header():
-    ss = st.session_state
-
-    print("\n  RETAINING WALL DESIGN\n")
-    print("    WALL TYPE -", ss.T1)
-
-    if ss.T1 == 4:
-        print("    WALL FTG. IS ON THE SAME SIDE OF RET. EARTH")
-        print("    FLUSH WALL FACE IS ON THE SAME SIDE OF RET. EARTH")
-        if ss.L2 != 0:
-            print(f"    GROUND SLOPE {ss.L2:.2f} : 1")
-    elif ss.T1 == 2:
-        print("    WALL FTG. IS ON THE OPP. SIDE OF RET. EARTH")
-        print("    FLUSH WALL FACE IS ON THE SAME SIDE OF RET. EARTH")
-    else:
-        print("    WALL FTG. IS ON THE OPP. SIDE OF RET. EARTH")
-        print("    FLUSH WALL FACE IS ON THE OPP. SIDE OF RET. EARTH")
-
-    print()
-    print(f"    WALL HEIGHT            = {ss.H1:8.2f}{ss.P2}")
-    print(f"    EQUIV. FLUID PRESSURE  = {ss.P:8.2f}{ss.P5s}")
-    print(f"    ALLOWABLE PASSIVE      = {ss.P4:8.2f}{ss.P5s}")
-    print(f"    COEFF. OF FRICTION     = {ss.C9:8.2f}")
-    if ss.S1 != 0:
-        print(f"    SURCHARGE              = {ss.S1:8.2f}{ss.P2}")
-    if ss.E != 0:
-        print(f"    TOE                    = {ss.E:8.2f}{ss.P1}")
-    print(f"    ALLOWABLE SOIL BEARING = {ss.S2:8.2f}{ss.P3s}")
-    print(f"    ALLOWABLE STL. STRESS  = {ss.Y:8.2f} (KSI)")
-
-    kern_label = "ALLOW OUTSIDE KERN" if ss.KERN_MODE == 1 else "FORCE INSIDE KERN"
-    print(f"    ECCENTRICITY MODE      : {kern_label}")
-    print()
-
-    gosub_790()
-
-# ------------------------------------------------------------
-# gosub_1210 — "More Print" (KEY-1)
-# ------------------------------------------------------------
-def gosub_1210():
-    ss = st.session_state
-
-    print("\n  RETAINING WALL DESIGN\n")
-    print("    WALL TYPE -", ss.T1)
-
-    if ss.T1 == 4:
-        print("    WALL FTG. IS ON THE SAME SIDE OF RET. EARTH")
-        print("    FLUSH WALL FACE IS ON THE SAME SIDE OF RET. EARTH")
-        if ss.L2 != 0:
-            print(f"    GROUND SLOPE {ss.L2:.2f} : 1")
-    elif ss.T1 == 2:
-        print("    WALL FTG. IS ON THE OPP. SIDE OF RET. EARTH")
-        print("    FLUSH WALL FACE IS ON THE SAME SIDE OF RET. EARTH")
-    else:
-        print("    WALL FTG. IS ON THE OPP. SIDE OF RET. EARTH")
-        print("    FLUSH WALL FACE IS ON THE OPP. SIDE OF RET. EARTH")
-
-    print()
-    print(f"    WALL HEIGHT            = {ss.H1:8.2f}{ss.P2}")
-    print(f"    EQUIV. FLUID PRESSURE  = {ss.P:8.2f}{ss.P5s}")
-    print(f"    ALLOWABLE PASSIVE      = {ss.P4:8.2f}{ss.P5s}")
-    print(f"    COEFF. OF FRICTION     = {ss.C9:8.2f}")
-    if ss.S1 != 0:
-        print(f"    SURCHARGE              = {ss.S1:8.2f}{ss.P2}")
-    if ss.E != 0:
-        print(f"    TOE                    = {ss.E:8.2f}{ss.P1}")
-    print(f"    ALLOWABLE SOIL BEARING = {ss.S2:8.2f}{ss.P3s}")
-    print(f"    ALLOWABLE STL. STRESS  = {ss.Y:8.2f} (KSI)")
-
-    kern_label = "ALLOW OUTSIDE KERN" if ss.KERN_MODE == 1 else "FORCE INSIDE KERN"
-    print(f"    ECCENTRICITY MODE      : {kern_label}")
-    print()
-
-    gosub_790()
-    for row in ss.TABLE_ROWS:
-        print(row)
-
-    gosub_1400()
-
-# ------------------------------------------------------------
-# gosub_510 — STEEL AREA CALC (with protection)
-# ------------------------------------------------------------
-def gosub_510():
-    ss = st.session_state
-
-    if ss.Dval == 0:
-        print("ERROR: Dval = 0 (wall thickness not set). Run Input Block first.")
-        ss.K1 = 0
-        return
-
-    ss.Areq = ss.M * 12.0 / (ss.Y * 7.0 / 8.0 * ss.Dval * 1000.0)
-    ss.A2 = ss.Areq
-
-    if ss.Cw == 0:
-        ss.P1s = ss.N1 * ss.Areq / (12.0 * ss.Dval)
-    else:
-        ss.P1s = ss.N2 * ss.Areq / (12.0 * ss.Dval)
-
-    ss.K = (2 * ss.P1s + ss.P1s * ss.P1s) ** 0.5 - ss.P1s
-    ss.J = 1 - ss.K / 3.0
-    if ss.K == 0 or ss.J == 0:
-        print("ERROR: K or J = 0. Reinforcement calculation cannot proceed.")
-        ss.K1 = 0
-        return
-
-    ss.F = ss.M * 2.0 / (ss.K * ss.J * ss.Dval * ss.Dval)
-
-    ss.K1 = 0
-    if ss.Cw == 0:
-        if ss.F < ss.F1:
-            gosub_670()
-            ss.K1 = 1
-        elif ss.N1 == 40 and ss.F < 500.0:
-            # F'm between 333-500: needs cont. inspection — reject without it
-            if not getattr(ss, '_silent', False):
-                print(f"    NOTE: D={ss.Dval:.1f}in  F'm={ss.F:.0f} psi > 333 — cont. inspection required; try next block size.")
-            ss.K1 = 0
-    else:
-        if ss.F < ss.F2:
-            gosub_670()
-            ss.K1 = 1
-
-# ------------------------------------------------------------
-# gosub_620 — BAR SELECTION
-# ------------------------------------------------------------
-def gosub_620():
-    ss = st.session_state
-
-    for ss.I2 in range(1, ss.I1 + 1):
-        if ss.Areq >= ss.A[ss.I2] / 1.02:
-            continue
-        if ss.A[ss.I2] >= ss.A2 / 1.02:
-            return
-        else:
-            ss.Areq = ss.A[ss.I2]
-        gosub_510()
-        if ss.K1 == 1:
-            return
-
-# ------------------------------------------------------------
-# gosub_360 — MOMENT + STEEL LOOP
-#
-# FIX C: masonry-to-concrete fallback block originally wrote
-# ss.Cw=1, ss.F2=900, ss.N2=11 directly, permanently corrupting
-# the user's wall-type selection for all subsequent reruns.
-# Fix: save and restore Cw/F2/N2 around the fallback block.
-# ------------------------------------------------------------
+# =============================================================================
+# 360  MOMENT + STEEL LOOP
+# =============================================================================
 def gosub_360():
-    """
-    Two-pass moment + steel loop.
+    """FIX 12/13: block index reset each height; concrete fallback seeded correctly."""
+    global H, H2, H1, S1, P, M, Cw, D, Dval, K1, I1, G, F2, N2
 
-    PASS 1 (silent): For each height increment determine the minimum
-            block index needed. Does NOT call gosub_670 (no output,
-            no ss.G increment, no ss.T/C writes).
+    MAX_DVAL = 36.0
+    H = 0.0
+    G = 0
 
-    PASS 2 (output): Enforce 24-inch minimum zone then re-run each
-            increment using the enforced block index, calling
-            gosub_670 to produce the printed table row.
-    """
-    ss = st.session_state
-    MIN_ZONE = 2.0   # 24 inches = 2 ft minimum zone per block size
-
-    # ----------------------------------------------------------
-    # Build height increment list
-    # ----------------------------------------------------------
-    heights = []
-    h = 0.0
     while True:
-        h += ss.H2
-        if h >= ss.H1:
-            h = ss.H1
-            heights.append(round(h, 6))
-            break
-        heights.append(round(h, 6))
+        H = round(H + H2, 6)
+        if H > H1 - 1e-6:
+            H = H1
 
-    MAX_DVAL = 30.0
+        M = S1 * P * H ** 2 / 2.0 + P * H ** 3 / 6.0
 
-    def _check_block(idx, h_val):
-        """
-        Silent check: can block index idx satisfy moment at h_val?
-        Sets ss._silent=True so gosub_670 skips output and ss.G/T/C writes.
-        Saves and restores all touched state variables.
-        """
-        save = {k: ss[k] for k in ('Dval','G','K1','M','Areq','A2','F','I1','P1s','K','J')}
-        ss._silent = True
-        ss.M    = ss.S1 * ss.P * h_val**2 / 2.0 + ss.P * h_val**3 / 6.0
-        ss.Dval = ss.D[idx]
-        gosub_510()
-        ok = ss.K1 == 1
-        if not ok:
-            ss.I1 = 7
-            gosub_620()
-            ok = ss.K1 == 1
-        ss._silent = False
-        for k, v in save.items():
-            ss[k] = v
-        return ok
-
-    def _find_block_index(h_val):
-        """Return minimum block index I that satisfies moment at h_val."""
-        for idx in range(1, 5):
-            if idx > 4 or ss.D[idx] == 0:
-                return idx   # concrete fallback signal
-            if _check_block(idx, h_val):
-                return idx
-        return 5   # concrete fallback
-
-    # ----------------------------------------------------------
-    # PASS 1 (silent): raw block index per height step
-    # ----------------------------------------------------------
-    raw_idx = []
-    for h_val in heights:
-        raw_idx.append(_find_block_index(h_val))
-
-    # ----------------------------------------------------------
-    # PASS 2a: enforce 24-inch minimum zone
-    # Walk from base upward; if a larger block zone is shorter
-    # than 24", extend it upward to cover at least 24".
-    # ----------------------------------------------------------
-    enforced_idx = list(raw_idx)
-    n = len(heights)
-
-    for j in range(n - 1, -1, -1):
-        if enforced_idx[j] >= 2:
-            zone_top = j
-            while zone_top > 0 and enforced_idx[zone_top-1] >= enforced_idx[j]:
-                zone_top -= 1
-            zone_ht = heights[n-1] - heights[zone_top] + ss.H2
-            if zone_ht < MIN_ZONE:
-                extra_steps = int((MIN_ZONE - zone_ht) / ss.H2) + 1
-                new_top = max(0, zone_top - extra_steps)
-                for k in range(new_top, zone_top):
-                    if enforced_idx[k] < enforced_idx[j]:
-                        enforced_idx[k] = enforced_idx[j]
-
-    # ----------------------------------------------------------
-    # PASS 2b (output): re-run with enforced indices, call
-    # gosub_670 to write table rows and update ss.T/ss.C/ss.G
-    # ----------------------------------------------------------
-    ss.H   = 0.0
-    ss.G   = 0
-    prev_I = 0
-
-    for step, h_val in enumerate(heights):
-        ss.H = h_val
-        ss.M = ss.S1 * ss.P * ss.H**2 / 2.0 + ss.P * ss.H**3 / 6.0
-        I    = enforced_idx[step]
-
-        if I != prev_I and I >= 2:
-            blk_name = {2: "12-in CMU", 3: "16-in CMU"}.get(I, "Concrete")
-            print(f"    NOTE: {blk_name} zone starts at H={ss.H:.2f} ft (24-in min zone enforced).")
-        prev_I = I
-
-        if ss.Cw == 1 or I > 4 or ss.D[I] == 0:
-            # Concrete fallback
-            prev_I_cmu = max(1, I - 1)
-            save_Cw, save_F2, save_N2, save_Dval = ss.Cw, ss.F2, ss.N2, ss.Dval
-            ss.Dval = ss.D[prev_I_cmu] if (prev_I_cmu <= 4 and ss.D[prev_I_cmu] != 0) else 5.5
-            ss.Cw = 1;  ss.F2 = 900.0;  ss.N2 = 11
+        if Cw == 1:
+            if G > 0:
+                Dval = max(T[G] - 2.5, Dval)
             found = False
-            while ss.Dval <= MAX_DVAL:
+            d_try = Dval
+            while d_try <= MAX_DVAL:
+                Dval = d_try
                 gosub_510()
-                if ss.K1 == 1: found = True; break
-                ss.I1 = 7
-                gosub_620()
-                if ss.K1 == 1: found = True; break
-                ss.Dval += 1.0
+                if K1 == 1:
+                    found = True; break
+                I1 = 7; gosub_620()
+                if K1 == 1:
+                    found = True; break
+                d_try += 1.0
             if not found:
-                print(f"  WARNING: No valid concrete section at H={ss.H:.2f} ft")
-            ss.Cw = save_Cw;  ss.F2 = save_F2;  ss.N2 = save_N2
-            if not found: ss.Dval = save_Dval
+                print(f"  WARNING: no valid concrete section at H={H:.2f} ft")
+
         else:
-            # CMU path — enforced block index
-            ss.Dval = ss.D[I]
-            gosub_510()
-            if ss.K1 == 0:
-                ss.I1 = 7
-                gosub_620()
-            if ss.K1 == 0:
-                print(f"  WARNING: Block index {I} still fails at H={ss.H:.2f} ft")
+            section_found = False
+            for I in range(1, 5):   # FIX 12: always start at 1
+                if D[I] == 0.0:
+                    continue
+                Dval = D[I]
+                gosub_510()
+                if K1 == 1:
+                    section_found = True; break
+                I1 = 7; gosub_620()
+                if K1 == 1:
+                    section_found = True; break
 
-# ------------------------------------------------------------
-# gosub_1205 — EARTH PRESSURE BLOCK
-# ------------------------------------------------------------
-def gosub_1205():
-    ss = st.session_state
-    # P3 = total lateral earth pressure resultant (lbs/ft) — horizontal force
-    # Acting at H4/3 above base for triangular, adjusted for surcharge
-    ss.P3 = ss.S1 * ss.P * ss.H4 + ss.P * ss.H4 * ss.H4 / 2.0
-    # M4 = overturning moment about toe (ft-lb/ft)
-    ss.M4 = ss.S1 * ss.P * ss.H4 * ss.H4 / 2.0 + ss.P * ss.H4 ** 3 / 6.0
-    # Pf = back-face wall friction (rubbing force)
-    # Coefficient = 0.3 fixed (wall-soil interface, separate from base C9)
-    # Acts as additional vertical load increasing sliding resistance
-    ss.Pf = ss.P3 * 0.3
+            if not section_found:
+                seed = 5.5
+                for idx in range(3, 0, -1):   # FIX 13
+                    if D[idx] != 0.0:
+                        seed = D[idx]; break
+                Dval = max(seed, 5.5)
+                Cw = 1;  F2 = 900.0;  N2 = 11
+                found = False
+                while Dval <= MAX_DVAL:
+                    gosub_510()
+                    if K1 == 1:
+                        found = True; break
+                    I1 = 7; gosub_620()
+                    if K1 == 1:
+                        found = True; break
+                    Dval += 1.0
+                if not found:
+                    print(f"  WARNING: no valid section at H={H:.2f} ft")
 
-# ------------------------------------------------------------
-# gosub_830 — FOOTING DESIGN
-# ------------------------------------------------------------
-def gosub_830():
-    ss = st.session_state
-
-    first_pass = True
-    while True:
-        # Default footing thickness by wall height:
-        #   <= 6 ft  -> 12 in
-        #   6~8 ft   -> 15 in
-        #   > 8 ft   -> match bottom stem thickness (minimum 15 in)
-        if ss.H1 <= 6.0:
-            Tftg = 12.0
-        elif ss.H1 <= 8.0:
-            Tftg = 15.0
-        else:
-            Tftg = max(15.0, ss.T[ss.G])
-
-        H3 = ss.H2
-        ss.W1 = ss.W5 = ss.M1 = ss.M5 = 0.0
-
-        if ss.T1 == 1:
-            # P/3 arm = toe + bottom stem thickness - top stem thickness
-            ss.L = ss.E + ss.T[ss.G] - ss.T[1]
-        else:
-            ss.L = ss.E
-
-        for i in range(1, ss.G + 1):
-            if i == ss.G:
-                H3 = ss.H1 - ss.H2 * (ss.G - 1)
-
-            # --- Wall stem weight and moment about toe ---
-            if ss.C[i] == 1:
-                W = 12.5 * ss.T[i] * H3
-            else:
-                W = 77.0 / 8.0 * ss.T[i] * H3
-            ss.W1 += W
-
-            if ss.T1 == 1:
-                # Arm from toe to stem centroid (in inches -> ft)
-                # Stem back face is at L from toe; centroid at L - T[i]/2
-                ss.M1 += W * (ss.L - ss.T[i] / 2.0) / 12.0
-            else:
-                ss.M1 += W * (ss.L + ss.T[i] / 2.0) / 12.0
-
-            # --- Heel earth weight and moment about toe ---
-            if ss.T1 == 1:
-                # Type 1: heel earth sits from wall back face to heel edge
-                # heel_width (ft) = B - L/12  (B known from prior iteration or initial guess)
-                # For first pass use L as proxy; _recalc_totals will correct with actual B
-                heel_ft = ss.B - ss.L / 12.0
-                if heel_ft < 0: heel_ft = 0.0
-                W  = 100.0 * H3 * heel_ft
-                # Moment arm from toe to centroid of heel earth
-                arm_ft = ss.L / 12.0 + heel_ft / 2.0
-                Mw = W * arm_ft
-            elif ss.T1 == 2:
-                heel_ft = ss.L / 12.0
-                W  = 100.0 * H3 * heel_ft
-                arm_ft = heel_ft / 2.0
-                Mw = W * arm_ft
-            else:
-                # Type 4: heel earth between toe and wall face
-                heel_ft = (Tftg - ss.T[i]) / 12.0
-                W  = 100.0 * H3 * heel_ft
-                arm_ft = ss.L / 12.0 + ss.T[i] / 12.0 + heel_ft / 2.0
-                Mw = W * arm_ft
-
-            ss.W5 += W
-            ss.M5 += Mw
-
-        if ss.C1 == 1:
-            ss.H4 = ss.H1
-        else:
-            ss.H4 = ss.H1 + Tftg / 12.0
-
-        gosub_1205()
-
-        if first_pass:
-            ss.B = int(ss.H1 / 2.5 * 12.0) / 12.0
-            first_pass = False
-
-        ss.W2 = 12.5 * Tftg * ss.B
-        ss.M2 = ss.W2 * ss.B / 2.0
-
-        # W6 = total vertical load (lbs/ft):
-        #   Wall stem (W1) + Footing (W2) + Heel earth (W5)
-        #   + back-face wall friction Pf (vertical component of earth push)
-        #   P3 is HORIZONTAL — must NOT be added to vertical load W6
-        # M6 = total resisting moment about toe (ft-lb/ft):
-        #   M4 is the overturning moment — included so X = M6/W6 gives
-        #   the correct resultant location measured from toe
-        # Pf = back-face wall friction — acts VERTICALLY DOWNWARD on wall stem
-        # caused by overturning tendency: earth pushes wall back face downward
-        # Contributes to OT resisting moment only — NOT to sliding resistance
-        # Moment arm from toe = L/12 ft (wall back face location)
-        ss.Mpf = ss.Pf * (ss.L / 12.0)
-        if ss.T1 != 4:
-            ss.M3 = 0.0
-            ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.Pf
-            ss.M6 = ss.M1 + ss.M2 + ss.M5 + ss.Mpf - ss.M4
-        else:
-            ss.L1 = ss.B - ss.L / 12.0 - Tftg / 12.0
-            ss.W7 = ss.L1 * ss.H1 * 100.0
-            ss.M7 = ss.W7 * (ss.L1 / 2.0 + ss.L / 12.0 + Tftg / 12.0)
-            ss.M3 = 0.0
-            ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.Pf + ss.W7 + ss.W8
-            ss.M6 = ss.M1 + ss.M2 + ss.M5 + ss.Mpf + ss.M7 + ss.M8 - ss.M4
-
-        def _recalc_totals():
-            """Recompute W2/M2/W5/M5/W6/M6 after B changes."""
-            ss.W2 = 12.5 * Tftg * ss.B
-            ss.M2 = ss.W2 * ss.B / 2.0
-
-            # Recompute heel earth W5/M5 with current B (heel width = B - L/12)
-            ss.W5 = 0.0; ss.M5 = 0.0
-            H3 = ss.H2
-            for i in range(1, ss.G + 1):
-                if i == ss.G:
-                    H3 = ss.H1 - ss.H2 * (ss.G - 1)
-                if ss.T1 == 1:
-                    heel_ft = ss.B - ss.L / 12.0
-                    if heel_ft < 0: heel_ft = 0.0
-                    W  = 100.0 * H3 * heel_ft
-                    arm_ft = ss.L / 12.0 + heel_ft / 2.0
-                    Mw = W * arm_ft
-                elif ss.T1 == 2:
-                    heel_ft = ss.L / 12.0
-                    W  = 100.0 * H3 * heel_ft
-                    arm_ft = heel_ft / 2.0
-                    Mw = W * arm_ft
-                else:
-                    heel_ft = (Tftg - ss.T[i]) / 12.0
-                    W  = 100.0 * H3 * heel_ft
-                    arm_ft = ss.L / 12.0 + ss.T[i] / 12.0 + heel_ft / 2.0
-                    Mw = W * arm_ft
-                ss.W5 += W; ss.M5 += Mw
-
-            ss.Mpf = ss.Pf * (ss.L / 12.0)
-            if ss.T1 != 4:
-                ss.M3 = 0.0
-                ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.Pf
-                ss.M6 = ss.M1 + ss.M2 + ss.M5 + ss.Mpf - ss.M4
-            else:
-                ss.L1 = ss.B - ss.L / 12.0 - Tftg / 12.0
-                ss.W7 = ss.L1 * ss.H1 * 100.0
-                ss.M7 = ss.W7 * (ss.L1 / 2.0 + ss.L / 12.0 + Tftg / 12.0)
-                ss.M3 = 0.0
-                ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.Pf + ss.W7 + ss.W8
-                ss.M6 = ss.M1 + ss.M2 + ss.M5 + ss.Mpf + ss.M7 + ss.M8 - ss.M4
-
-        def _widen():
-            ss.B = int(12 * ss.B + 2) / 12.0
-            _recalc_totals()
-
-        _recalc_totals()
-
-        while True:
-            ss.X = ss.M6 / ss.W6 if ss.W6 != 0 else 0
-
-            # --- eccentricity / kern check ---
-            # KERN_MODE 1: allow outside kern — only widen if resultant
-            #              falls completely off the footing (X<=0 or X>=B).
-            # KERN_MODE 2: force inside kern (middle third) — widen until
-            #              B/3 <= X <= 2B/3. This is the stricter condition
-            #              and produces a wider footing than mode 1 when
-            #              eccentricity is large.
-            if ss.KERN_MODE == 1:
-                if ss.X <= 0 or ss.X >= ss.B:
-                    _widen(); continue
-            else:
-                # Force resultant inside middle third
-                if ss.X < ss.B / 3.0:
-                    _widen(); continue
-                if ss.X > 2.0 * ss.B / 3.0:
-                    _widen(); continue
-
-            # --- S.F. overturning >= 1.5 ---
-            OTM = ss.M4
-            RM  = ss.M6 + ss.M4   # M6 = RM - OTM, so RM = M6 + M4
-            if OTM > 0 and RM / OTM < 1.5:
-                _widen(); continue
-
-            # --- S.F. sliding >= 1.5 ---
-            # Resistance = base friction (W6*C9)
-            #            + back-face wall friction Pf (horizontal, P3*0.3)
-            #            + passive (P4*Tftg*B)
-            # Lateral    = P3 (total horizontal earth pressure)
-            Tftg_ft = Tftg / 12.0
-            friction = ss.W6 * ss.C9
-            passive  = ss.P4 * Tftg_ft * ss.B
-            lateral  = ss.P3
-            if lateral > 0 and (friction + passive) / lateral < 1.5:
-                _widen(); continue
-
-            # --- Max soil bearing <= allowable ---
-            # KERN_MODE 1: triangular distribution when outside kern
-            # KERN_MODE 2: resultant guaranteed inside kern so always
-            #              use trapezoidal formula (no tension zone)
-            ss.E1 = abs(ss.B / 2.0 - ss.X)
-            if ss.KERN_MODE == 1 and ss.E1 > ss.B / 6.0:
-                # Outside kern — triangular bearing block
-                contact = 3.0 * ss.X if ss.X < ss.B / 2.0 else 3.0 * (ss.B - ss.X)
-                S_max = 2.0 * ss.W6 / contact if contact > 0 else 9999
-            else:
-                # Inside kern — trapezoidal, no tension
-                S_max = (ss.W6 / ss.B) * (1.0 + 6.0 * ss.E1 / ss.B)
-            if S_max > ss.S2:
-                _widen(); continue
-
-            # all checks passed
+        if H >= H1 - 1e-6:
             break
+
+
+# =============================================================================
+# 1205  EARTH PRESSURE
+# =============================================================================
+def gosub_1205():
+    """FIX 7: correct P3 and M4 formulas."""
+    global P3, M4, S1, P, H4
+    # P3 = total horizontal earth-pressure force (lb/ft)
+    # M4 = overturning moment ABOUT THE TOE (ft-lb/ft)
+    #      Triangular: resultant = P*H4²/2 acting at H4/3 from base
+    #      → OTM = P*H4²/2 × H4/3 = P*H4³/6  (S1=0 case)
+    #      With surcharge rectangle acting at H4/2:
+    #      → OTM = P*S1*H4²/2 + P*H4³/6
+    # NOTE: some Streamlit versions use P*H4³/3 for OTM — WRONG (2× too large).
+    P3 = P * S1 * H4 + P * H4 ** 2 / 2.0
+    M4 = P * S1 * H4 ** 2 / 2.0 + P * H4 ** 3 / 6.0   # /6 is correct for triangular
+
+
+# =============================================================================
+# 830  FOOTING DESIGN
+# =============================================================================
+def gosub_830():
+    """
+    FIX 8:  W1/M1 computed once outside B-loop (wall weight unchanged by B).
+    FIX 15: W5/M5 (heel/toe soil) computed inside B-loop (width depends on B).
+            T1==1 heel soil: W5=100*heel_ft*H1, arm = L/12+heel_ft/2 from TOE.
+    FIX 9:  M6 = Σ(vert moments) − M4  (net stabilising about toe).
+    FIX 10: W6 = vertical loads only.
+    """
+    global T, G, T1, E, H2, H1, W1, W5, M1, M5
+    global C1, H4, B, W2, M2, W6, M6, P3, M4, M3
+    global W7, M7, W8, M8, L, L1, S2, E1, X, C, L2, S, Tftg
+
+    # FOOTING THICKNESS (inches)
+    # Tftg = max(wall stem thickness at top, 12-in ACI minimum).
+    # T[G] is already in INCHES (e.g. 16 for a 16-in CMU wall).
+    # *** Common bug in Streamlit version: using H1 (feet) as Tftg (inches) ***
+    # *** giving Tftg=10 in for H1=10 ft — WRONG.  Correct line is below:  ***
+    Tftg = max(T[G], 12.0)   # always inches — never replace with H1
+
+    # L = distance from TOE EDGE to back of wall stem (inches)
+    L = E + T[G] if T1 == 1 else E
+
+    if C1 == 1:
+        H4 = H1
+    else:
+        H4 = H1 + Tftg / 12.0
+
+    gosub_1205()   # FIX 7
+
+    # FIX 8: wall weight once (does not depend on B)
+    W1 = 0.0;  M1 = 0.0
+    H3 = H2
+    for i in range(1, G + 1):
+        if i == G:
+            H3 = H1 - H2 * (G - 1)
+        W_seg = ((150.0 if C[i] == 1 else 115.0) / 12.0) * T[i] * H3
+        W1   += W_seg
+        # FIX 14: arm in feet
+        arm   = L / 12.0 - T[i] / 24.0 if T1 == 1 else L / 12.0 + T[i] / 24.0
+        M1   += W_seg * arm
+
+    # Initial B
+    B = max(round(H1 / 2.5, 1), Tftg / 12.0 + 0.5)
+
+    # B-iteration
+    for _ in range(500):
+        W2 = 150.0 * (Tftg / 12.0) * B
+        M2 = W2 * B / 2.0
+
+        if T1 != 4:
+            # FIX 15: heel/toe soil — depends on B, computed here
+            if T1 == 1:
+                # Heel soil: behind wall stem, from L/12 to B
+                heel_ft = B - L / 12.0
+                if heel_ft > 0:
+                    W5 = 100.0 * heel_ft * H1
+                    M5 = W5 * (L / 12.0 + heel_ft / 2.0)   # arm from TOE
+                else:
+                    W5 = M5 = 0.0
+            elif T1 == 2:
+                # Toe soil: in front of wall, from 0 to L/12
+                toe_ft = L / 12.0
+                if toe_ft > 0:
+                    W5 = 100.0 * toe_ft * H1
+                    M5 = W5 * (toe_ft / 2.0)   # arm from TOE (correct for T1=2)
+                else:
+                    W5 = M5 = 0.0
+            else:
+                W5 = M5 = 0.0
+
+            W7 = W8 = M7 = M8 = 0.0
+            # FIX 10: W6 = vertical loads only
+            W6 = W1 + W2 + W5
+            # FIX 9: M6 = stabilising − OTM
+            M6 = M1 + M2 + M5 - M4
+
+        else:  # T1 == 4
+            L1  = max(B - L / 12.0 - Tftg / 12.0, 0.0)
+            W7  = 100.0 * L1 * H1
+            M7  = W7 * (L1 / 2.0 + L / 12.0 + Tftg / 12.0)
+            W8 = M8 = 0.0
+            if L2 != 0:
+                W8 = 100.0 * L1 ** 2 / (2.0 * L2)
+                M8 = W8 * (L1 * 2.0 / 3.0 + L / 12.0 + Tftg / 12.0)
+            W5 = M5 = 0.0
+            W6 = W1 + W2 + W7 + W8
+            M6 = M1 + M2 + M7 + M8 - M4
+
+        if W6 <= 0:
+            B += 1.0 / 12.0; continue
+
+        # Resultant from toe
+        X  = (M6 + M4) / W6
+        E1 = abs(B / 2.0 - X)
+
+        if KERN_MODE == 2 and E1 > B / 6.0 + 1e-4:
+            B += 1.0 / 12.0; continue
+        if X <= 0 or X >= B:
+            B += 1.0 / 12.0; continue
+
+        # Soil bearing
+        if E1 > B / 6.0:
+            contact = 3.0 * X if X <= B / 2.0 else 3.0 * (B - X)
+            S = 2.0 * W6 / contact if contact > 0 else 1e9
+        else:
+            S = (W6 / B) * (1.0 + 6.0 * E1 / B)
+
+        if S > S2:
+            B += 1.0 / 12.0; continue
+
+        # S.F. overturning
+        if M4 > 0 and (W6 * X / M4) < 1.5:
+            B += 1.0 / 12.0; continue
+
+        # Mode-2 trim
+        if KERN_MODE == 2 and E1 < B / 6.0 - 1.0 / 72.0:
+            B -= 1.0 / 12.0; continue
 
         break
+    else:
+        print("  WARNING: footing B-iteration did not converge")
 
-# ------------------------------------------------------------
-# gosub_1400 — FOOTING SUMMARY
-# ------------------------------------------------------------
+    # Final store
+    E1 = abs(B / 2.0 - X)
+
+
+# =============================================================================
+# ORIENTATION TEXT
+# =============================================================================
+def gosub_1540(): print("    WALL FTG. IS ON THE OPP. SIDE OF RET. EARTH")
+def gosub_1550(): print("    WALL FTG. IS ON THE SAME SIDE OF RET. EARTH")
+def gosub_1560(): print("    FLUSH WALL FACE IS ON THE OPP. SIDE OF RET. EARTH")
+def gosub_1570(): print("    FLUSH WALL FACE IS ON THE SAME SIDE OF RET. EARTH")
+def gosub_1572():
+    if L2: print(f"    GROUND SLOPE {L2:.2f} : 1")
+
+
+# =============================================================================
+# DESIGN HEADER
+# =============================================================================
+def _print_header():
+    kern_label = "ALLOW OUTSIDE KERN" if KERN_MODE == 1 else "FORCE INSIDE KERN"
+    print("\n  RETAINING WALL DESIGN\n")
+    print("    WALL TYPE -", T1)
+    if   T1 == 4: gosub_1550(); gosub_1560(); gosub_1572()
+    elif T1 == 2: gosub_1540(); gosub_1570()
+    else:         gosub_1540(); gosub_1560()
+    print()
+    print(f"    WALL HEIGHT            = {H1:8.2f}{P2}")
+    print(f"    EQUIV. FLUID PRESSURE  = {P:8.2f}{P5s}")
+    print(f"    ALLOWABLE PASSIVE      = {P4:8.2f}{P5s}")
+    print(f"    COEFF. OF FRICTION     = {C9:8.4f}")
+    if S1: print(f"    SURCHARGE              = {S1:8.2f}{P2}")
+    if E:  print(f"    TOE                    = {E:8.2f}{P1}")
+    print(f"    ALLOWABLE SOIL BEARING = {S2:8.2f}{P3s}")
+    print(f"    ALLOWABLE STL. STRESS  = {Y:8.2f} (KSI)")
+    print(f"    ECCENTRICITY MODE      : {kern_label}")
+    print()
+
+def gosub_print_header():
+    _print_header(); gosub_790()
+
+
+# =============================================================================
+# 1210  SUMMARY REPRINT  (key 1)
+# =============================================================================
+def gosub_1210():
+    _print_header(); gosub_790()
+    for row in TABLE_ROWS: print(row)
+    gosub_1400()
+
+
+# =============================================================================
+# 1400  FOOTING SUMMARY
+# =============================================================================
 def gosub_1400():
-    ss = st.session_state
-
-    kern_label = "ALLOW OUTSIDE KERN" if ss.KERN_MODE == 1 else "FORCE INSIDE KERN"
+    kern_label = "ALLOW OUTSIDE KERN" if KERN_MODE == 1 else "FORCE INSIDE KERN"
     print()
-    print(f"    ECCENTRICITY MODE : {kern_label}")
-    print(f"    FTG. WIDTH  = {ss.B:.2f}{ss.P2}")
-    print(f"    FTG.  T     = {ss.T[ss.G]:.2f}{ss.P1}")
-    print(f"    X           = {ss.X:.2f}{ss.P2}")
+    print(f"    ECCENTRICITY MODE  : {kern_label}")
+    print(f"    FTG. WIDTH  = {B:.3f}{P2}")
+    print(f"    FTG.  T     = {Tftg:.2f}{P1}")
+    print(f"    WALL  T     = {T[G]:.2f}{P1}")
+    print(f"    X (from toe)= {X:.3f}{P2}")
 
-    ss.E1 = abs(ss.B / 2.0 - ss.X)
-
-    kern_label2 = "B/3" if ss.KERN_MODE == 2 else "B/6"
-    kern_limit  = ss.B / 3.0 if ss.KERN_MODE == 2 else ss.B / 6.0
-
-    if ss.KERN_MODE == 1 and ss.E1 > ss.B / 6.0:
-        # Mode 1: outside kern — triangular bearing, one edge lifts
-        contact = 3.0 * ss.X if ss.X < ss.B / 2.0 else 3.0 * (ss.B - ss.X)
-        S_max = 2.0 * ss.W6 / contact if contact > 0 else 9999
-        S_min = 0.0
-        sb_flag = "  ** OK **" if S_max <= ss.S2 else f"  ** NG — EXCEEDS ALLOWABLE {ss.S2:.0f} PSF **"
-        print(f"    ** E > B/6 : RESULTANT OUTSIDE KERN **")
-        print(f"    SOIL BEAR'G MAX = {S_max:.2f}{ss.P3s}", sb_flag)
-        print(f"    SOIL BEAR'G MIN =   0.00{ss.P3s}  (tension — footing lifts)")
-        print(f"    SOIL BEAR'G ALL = {ss.S2:.2f}{ss.P3s}")
-        print(f"    ECCENTRICITY    = {ss.E1:.2f}{ss.P2}  ({kern_label2} = {kern_limit:.2f}{ss.P2})  ** OUTSIDE KERN **")
+    if E1 > B / 6.0 + 1e-4:
+        contact = 3.0 * X if X <= B / 2.0 else 3.0 * (B - X)
+        S_max   = 2.0 * W6 / contact if contact > 0 else 1e9
+        print(f"    ** E > B/6 — RESULTANT OUTSIDE KERN **")
+        print(f"    SOIL BEAR'G MAX = {S_max:.2f}{P3s}")
+        print(f"    SOIL BEAR'G MIN =    0.00{P3s}  (footing lifts off)")
+        print(f"    ECCENTRICITY    = {E1:.3f}{P2}  (B/6={B/6:.3f}{P2})  OUTSIDE KERN")
     else:
-        # Mode 2 (always inside kern) or Mode 1 inside kern — trapezoidal
-        S_max = (ss.W6 / ss.B) * (1.0 + 6.0 * ss.E1 / ss.B)
-        S_min = (ss.W6 / ss.B) * (1.0 - 6.0 * ss.E1 / ss.B)
-        sb_flag = "  ** OK **" if S_max <= ss.S2 else f"  ** NG — EXCEEDS ALLOWABLE {ss.S2:.0f} PSF **"
-        kern_status = "WITHIN KERN" if ss.E1 <= ss.B / 6.0 else "OUTSIDE KERN"
-        print(f"    SOIL BEAR'G MAX = {S_max:.2f}{ss.P3s}", sb_flag)
-        print(f"    SOIL BEAR'G MIN = {S_min:.2f}{ss.P3s}")
-        print(f"    SOIL BEAR'G ALL = {ss.S2:.2f}{ss.P3s}")
-        print(f"    ECCENTRICITY    = {ss.E1:.2f}{ss.P2}  ({kern_label2} = {kern_limit:.2f}{ss.P2})  ** {kern_status} **")
+        S_max = (W6 / B) * (1.0 + 6.0 * E1 / B)
+        S_min = (W6 / B) * (1.0 - 6.0 * E1 / B)
+        print(f"    SOIL BEAR'G MAX = {S_max:.2f}{P3s}")
+        print(f"    SOIL BEAR'G MIN = {S_min:.2f}{P3s}")
+        print(f"    ECCENTRICITY    = {E1:.3f}{P2}  (B/6={B/6:.3f}{P2})  WITHIN KERN")
 
-    OTM = ss.M4
-    RM  = ss.M6 + ss.M4   # RM = M1+M2+M5+Mpf (Mpf already in M6)
+    OTM = M4;  RM = W6 * X
     if OTM > 0:
-        SF_OT = RM / OTM
-        ot_flag = "  ** OK **" if SF_OT >= 1.5 else "  ** NG — S.F. < 1.5 **"
-        print(f"    RESIST. MOM (RM)  = {RM:.2f} (FT-LB)")
-        print(f"    OVERTURN MOM (OTM)= {OTM:.2f} (FT-LB)")
-        print(f"    OT S.F. = RM/OTM = {RM:.2f}/{OTM:.2f} = {SF_OT:.2f}", ot_flag)
+        SF = RM / OTM
+        print(f"    RESIST. MOM  = {RM:.2f} (FT-LB/FT)")
+        print(f"    OVERTURN MOM = {OTM:.2f} (FT-LB/FT)")
+        print(f"    S.F. OVERT.  = {SF:.3f}", end="")
+        print("  O.K." if SF >= 1.5 else "  ** FAIL — need >= 1.50 **")
     else:
-        print("    OT S.F. = N/A")
+        print("    S.F. OVERT.  = N/A")
 
-    # S.F. sliding
-    Tftg_ft  = ss.T[ss.G] / 12.0 if ss.T[ss.G] >= 12 else 1.0
-    friction  = ss.W6 * ss.C9
-    passive   = ss.P4 * Tftg_ft * ss.B
-    back_fric = ss.Pf
-    lateral   = ss.P3
-    if lateral > 0:
-        SF_SL = (friction + passive) / lateral
-        sl_flag = "  ** OK **" if SF_SL >= 1.5 else "  ** NG — S.F. < 1.5 **"
-        print(f"    BASE FRIC.  = W6 x C9       = {ss.W6:.2f} x {ss.C9:.2f} = {friction:.2f} (LB)")
-        print(f"    PASSIVE RES = P4 x Tftg x B = {ss.P4:.0f} x {Tftg_ft:.2f} x {ss.B:.2f} = {passive:.2f} (LB)")
-        print(f"    LATERAL     = P3             = {lateral:.2f} (LB)")
-        print(f"    SL S.F. = (BASE FRIC.+PASSIVE)/LATERAL = ({friction:.2f}+{passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
+    # FIX 11: sliding
+    if C1 == 1:
+        print("    WITH SLAB ON GRADE — SLIDING O.K.")
+        return
+
+    F_slide    = P3
+    F_friction = C9 * W6
+    print(f"    LATERAL FORCE (SLIDING) = {F_slide:.2f}{P4s}")
+    print(f"    FRICTION RESIST.        = {F_friction:.2f}{P4s}")
+
+    if F_friction >= F_slide:
+        print("    FRICTION > SLIDING  O.K.")
+        return
+
+    passive_ftg = P4 * (Tftg / 12.0)
+    if F_friction + passive_ftg >= F_slide:
+        print("    WITH PASSIVE ON FTG. FACE  O.K.")
+        return
+
+    deficit      = F_slide - F_friction
+    key_depth_in = (deficit / P4) * 12.0
+    extra_in     = key_depth_in - Tftg
+    if extra_in > 0:
+        print(f"    USE KEY  {extra_in:.1f}{P1} BELOW FTG.")
     else:
-        print("    SL S.F. = N/A")
+        print(f"    TOTAL KEY DEPTH = {key_depth_in:.1f}{P1}  (within footing depth)")
 
-# ------------------------------------------------------------
-# gosub_1610 — MOMENT BREAKDOWN
-# ------------------------------------------------------------
+
+# =============================================================================
+# 1610  MOMENT BREAKDOWN  (key 2)
+# =============================================================================
 def gosub_1610():
-    ss = st.session_state
-
-    print("    ITEMS          W           M      NOTES")
-    print(f"    WALL       {ss.W1:10.2f}  {ss.M1:10.2f}")
-    print(f"    FTG.       {ss.W2:10.2f}  {ss.M2:10.2f}")
-    print(f"    HEEL EARTH {ss.W5:10.2f}  {ss.M5:10.2f}")
-    print(f"    BACK FRIC. {ss.Pf:10.2f}  {ss.Mpf:10.2f}  P3 x 0.3 — vertical, resists OT only (arm={ss.L/12:.2f} ft)")
-    print(f"    HEEL SOIL2 {ss.W7:10.2f}  {ss.M7:10.2f}")
-    print(f"    HEEL SOIL3 {ss.W8:10.2f}  {ss.M8:10.2f}")
-    print(f"    O.T.M.     {'---':>10}  {ss.M4:10.2f}  lateral earth OTM (subtracted from M6)")
-    print(f"    TOTAL      {ss.W6:10.2f}  {ss.M6:10.2f}")
-    print(f"    P3 (horiz) {ss.P3:10.2f}  {'(lateral)':>10}  earth pressure resultant (not in W)")
+    print()
+    print("    ITEM          W (lb/ft)      M (ft-lb/ft)")
+    print(f"    WALL          {W1:11.2f}     {M1:12.2f}")
+    print(f"    FOOTING       {W2:11.2f}     {M2:12.2f}")
+    print(f"    HEEL/TOE SOIL {W5:11.2f}     {M5:12.2f}")
+    if W7: print(f"    WEDGE 1       {W7:11.2f}     {M7:12.2f}")
+    if W8: print(f"    WEDGE 2       {W8:11.2f}     {M8:12.2f}")
+    print(f"    LATERAL (OTM) {'---':>11}     {M4:12.2f}  (overturning)")
+    print(f"    TOTAL VERT.   {W6:11.2f}     {M6:12.2f}  (net stab = ΣM_vert − M4)")
     print()
 
-# ------------------------------------------------------------
-# gosub_1700 — POINT LOAD CHECK
-#
-# FIX E: Original rendered P9/X9 inputs inside this function
-# via st.sidebar.number_input — those widgets disappeared on
-# every rerun since the function only ran on button click.
-# Fix: P9/X9 inputs moved to always-visible sidebar section
-# (controlled by a checkbox). This function now only calculates.
-# ------------------------------------------------------------
+
+# =============================================================================
+# 1700  POINT-LOAD CHECK  (key 3)
+# =============================================================================
 def gosub_1700():
-    ss = st.session_state
+    P9_val  = float(input("POINT LOAD P (LB/FT) "))
+    X9_val  = float(input("LOAD LOCATION from toe X9 (FT) "))
+    B_trial = float(input("TRIAL FTG. WIDTH B (FT) "))
 
-    if ss.B == 0:
-        print("    ERROR: B = 0. Run Footing Design first.")
-        return
+    W2_t = 150.0 * (Tftg / 12.0) * B_trial
+    # Use last computed W5 (heel/toe soil at design B; approximate for trial B)
+    Q1 = W1 + W2_t + W5 + W7 + W8 + P9_val
+    Q2 = M1 + W2_t * B_trial / 2.0 + M5 + M7 + M8 - M4 + P9_val * X9_val
 
-    B_trial = ss.B
-    Q1 = ss.W1 + B_trial * 150 + ss.P3 + ss.W4 + ss.W5 + ss.W7 + ss.W8 + ss.P9
-    Q2 = ss.M1 + B_trial * 150 * B_trial / 2 + ss.M3 + ss.M4 + ss.M5 + ss.M7 + ss.M8 + ss.P9 * ss.X9
+    Xt = (Q2 + M4) / Q1 if Q1 > 0 else B_trial / 2.0
+    E9 = abs(B_trial / 2.0 - Xt)
 
-    if Q1 == 0:
-        print("    ERROR: Total weight Q1 = 0. Run Footing Design first.")
-        return
+    print(f"    P   = {P9_val:.2f} (LB/FT)")
+    print(f"    X9  = {X9_val:.2f} (FT from toe)")
+    print(f"    B   = {B_trial:.2f} (FT)")
+    print(f"    W   = {Q1:.2f} (LB/FT)")
+    print(f"    M   = {Q2:.2f} (FT-LB/FT)")
+    print(f"    E   = {E9:.3f} (FT)")
 
-    X_trial = Q2 / Q1
-    E9 = abs(B_trial / 2 - X_trial)
-
-    print(f"    P (LB)              {ss.P9:.2f}")
-    print(f"    X9 (FT)             {ss.X9:.2f}")
-    print(f"    B (FTG. WIDTH - FT) {B_trial:.2f}")
-    print(f"    W = {Q1:.2f}")
-    print(f"    M = {Q2:.2f}")
-    print(f"    E = {E9:.2f}")
-
-    if E9 > B_trial / 6.0:
-        contact = 3.0 * X_trial if X_trial < B_trial / 2.0 else 3.0 * (B_trial - X_trial)
-        SP_max = 2.0 * Q1 / contact
-        print(f"    ** E > B/6 : RESULTANT OUTSIDE KERN **")
+    if E9 > B_trial / 6.0 + 1e-4:
+        contact = 3.0 * Xt if Xt <= B_trial / 2.0 else 3.0 * (B_trial - Xt)
+        SP_max  = 2.0 * Q1 / contact if contact > 0 else 1e9
+        print("    ** E > B/6 — OUTSIDE KERN **")
         print(f"    S.P. MAX = {SP_max:.2f} (PSF)")
-        print(f"    S.P. MIN =   0.00 (PSF)")
-        print(f"    ECCENTRICITY = {E9:.2f} (FT)  (B/6 = {B_trial/6:.2f} FT)  ** OUTSIDE KERN **")
+        print(f"    S.P. MIN =    0.00 (PSF)  (footing lifts off)")
     else:
         SP_max = (Q1 / B_trial) * (1.0 + 6.0 * E9 / B_trial)
         SP_min = (Q1 / B_trial) * (1.0 - 6.0 * E9 / B_trial)
         print(f"    S.P. MAX = {SP_max:.2f} (PSF)")
         print(f"    S.P. MIN = {SP_min:.2f} (PSF)")
-        print(f"    ECCENTRICITY = {E9:.2f} (FT)  (B/6 = {B_trial/6:.2f} FT)  ** WITHIN KERN **")
+    print(f"    ECCENT. = {E9:.3f} ft  (B/6 = {B_trial/6:.3f} ft)")
 
-    OTM_t = ss.M4
-    RM_t  = Q2 + ss.M4   # Q2 = net moment (RM-OTM), so RM = Q2 + M4
-    if OTM_t > 0:
-        SF_t = RM_t / OTM_t
-        ot_flag = "  ** OK **" if SF_t >= 1.5 else "  ** NG — S.F. < 1.5 **"
-        print(f"    RESIST. MOM (RM)  = {RM_t:.2f} (FT-LB)")
-        print(f"    OVERTURN MOM (OTM)= {OTM_t:.2f} (FT-LB)")
-        print(f"    OT S.F. = RM/OTM = {RM_t:.2f}/{OTM_t:.2f} = {SF_t:.2f}", ot_flag)
+    RM_t = Q1 * Xt
+    if M4 > 0:
+        SF_t = RM_t / M4
+        print(f"    RESIST. MOM  = {RM_t:.2f}")
+        print(f"    OVERTURN MOM = {M4:.2f}")
+        print(f"    S.F. OVERT.  = {SF_t:.3f}", end="")
+        print("  O.K." if SF_t >= 1.5 else "  ** FAIL **")
     else:
-        print("    OT S.F. = N/A")
+        print("    S.F. OVERT.  = N/A")
 
-# ============================================================
-# MAIN PAGE LAYOUT
-# ============================================================
 
-st.title("Retaining Wall Program — Streamlit Version")
+# =============================================================================
+# MAIN
+# =============================================================================
+def main():
+    global D, A, P1, P2, P3s, P4s, P5s, W4, M3, W7, W8, M7, M8, TABLE_ROWS
 
-# FIX 1: Always render sidebar inputs — not inside a button block
-gosub_140()
+    D[1] = 5.5;  D[2] = 9.5;  D[3] = 13.5;  D[4] = 0.0
 
-# FIX E: Point Load inputs always visible when checkbox enabled.
-# Checkbox state in session_state so it survives reruns.
-# P9/X9 use key-only pattern — NO value= override.
-# Passing value= resets the field to ss.P9/ss.X9 on every rerun
-# (the door closes again as soon as the user types anything).
-# We initialise the keyed slots once, then Streamlit owns them.
-if "show_ptload" not in st.session_state:
-    st.session_state.show_ptload = False
-if "pl_P9" not in st.session_state:
-    st.session_state.pl_P9 = 0.0
-if "pl_X9" not in st.session_state:
-    st.session_state.pl_X9 = 0.0
+    # Rebar areas (in²/ft at 12-in spacing) for bars #3–#9
+    A[1] = 0.11   # #3
+    A[2] = 0.20   # #4
+    A[3] = 0.31   # #5
+    A[4] = 0.44   # #6
+    A[5] = 0.60   # #7
+    A[6] = 0.88   # #8
+    A[7] = 1.00   # #9
 
-with st.sidebar:
-    st.markdown("---")
-    st.session_state.show_ptload = st.checkbox(
-        "Show Point Load inputs (KEY-3)",
-        value=st.session_state.show_ptload
-    )
-    if st.session_state.show_ptload:
-        st.subheader("Point Load Check (KEY‑ 3)")
-        # key= only, no value= — widget retains whatever user typed
-        st.number_input("P (LB)",  step=1.0, format="%g", key="pl_P9")
-        st.number_input("X9 (FT)", step=0.1, format="%g", key="pl_X9")
+    P1  = " (IN)";  P2  = " (FT)"
+    P3s = " (PSF)"; P4s = " (LB/FT)"; P5s = " (LB/CF)"
 
-# Always sync ss.P9/ss.X9 from keyed widgets so gosub_1700 reads
-# the current typed values no matter when the button is clicked.
-st.session_state.P9 = st.session_state.pl_P9
-st.session_state.X9 = st.session_state.pl_X9
+    W4 = W7 = W8 = 0.0
+    M3 = M7 = M8 = 0.0
+    TABLE_ROWS.clear()
 
-col1, col2, col3 = st.columns(3)
-col4, col5, col6 = st.columns(3)
-
-if col1.button("Run Input Block"):
     gosub_1580()
-    gosub_5000()
+    gosub_140()
     gosub_print_header()
+    gosub_360()
+    gosub_830()
+    gosub_1400()
 
-if col2.button("Run Moment Loop"):
-    if st.session_state.Dval == 0 and st.session_state.Cw == 1:
-        print("ERROR: Run Input Block first (Dval not set).")
-    else:
-        gosub_360()
+    while True:
+        print()
+        print("MORE PRINT   KEY --- 1")
+        print("FTG. MOMENTS KEY --- 2")
+        print("POINT LOAD   KEY --- 3")
+        print("QUIT         KEY --- other")
+        try:
+            choice = int(input("> "))
+        except (ValueError, EOFError):
+            break
+        if   choice == 1: gosub_1210()
+        elif choice == 2: gosub_1610()
+        elif choice == 3: gosub_1700()
+        else:             break
 
-if col3.button("Run Footing Design"):
-    if st.session_state.G == 0:
-        print("ERROR: Run Moment Loop first.")
-    else:
-        gosub_830()
-        gosub_1400()
+    print("Done.")
 
-if col4.button("More Print (KEY‑1)"):
-    gosub_1210()
 
-if col5.button("Footing Moment (KEY‑2)"):
-    gosub_1610()
-
-if col6.button("Point Load Check (KEY‑3)"):
-    gosub_1700()
-
-# FIX D: Persistent output — always rendered, survives every rerun
-if st.session_state.output_log:
-    st.markdown("---")
-    st.subheader("Output")
-    st.text("".join(st.session_state.output_log))
-
-# ------------------------------------------------------------
-# SAFE RESET BUTTON
-# ------------------------------------------------------------
-st.markdown("---")
-
-if st.button("🔄 Reset All Inputs"):
-    keys_to_clear = [
-        "T","D","C","A","P1","P2","P3s","P4s","P5s","H","H1","H2","H3","H4",
-        "L","L1","L2","P","P4","S1","S2","C9","Y","C1","Cw","T1","Dval","F",
-        "F1","F2","N1","N2","G","W1","W2","W3","W4","W5","W6","W7","W8",
-        "M1","M2","M3","M4","M5","M6","M7","M8","X","S","E","E1","E2","K1",
-        "Areq","A2","P1s","K","J","A1","S9","D9","R","P3","P9","X9","B","M",
-        "I1","I2","TABLE_ROWS","KERN_MODE","output_log","initialized",
-        "pl_P9","pl_X9","show_ptload"
-    ]
-
-    for key in keys_to_clear:
-        if key in st.session_state:
-            del st.session_state[key]
-
-    initialize_globals()
-    initialize_block_and_rebar()
-    st.session_state.initialized = True
-    st.session_state.output_log = []
-    st.rerun()
+if __name__ == "__main__":
+    main()
