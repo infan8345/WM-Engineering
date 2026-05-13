@@ -51,6 +51,7 @@ def initialize_globals():
         "A1": 0.0, "S9": 0.0, "D9": 0,
         "R": "", "P3": 0.0, "Pf": 0.0, "Mpf": 0.0, "P9": 0.0, "X9": 0.0,
         "B": 0.0, "M": 0.0, "I1": 0, "I2": 0,
+        "Tftg": 12.0,
         "TABLE_ROWS": [],
         "_silent": False,
         "KERN_MODE": 1,
@@ -499,7 +500,9 @@ def gosub_830():
         # --- FIX 1: minimum footing thickness = 12 in ---
         # For walls taller than 8 ft match bottom stem but never < 12 in.
         # For all others 12 in is sufficient.
+        # --- Footing thickness: minimum 12 in, match stem if larger ---
         Tftg = max(12.0, ss.T[ss.G])
+        ss.Tftg = Tftg   # store for gosub_1400 reporting and sliding check
 
         H3 = ss.H2
         ss.W1 = ss.W5 = ss.M1 = ss.M5 = 0.0
@@ -691,7 +694,7 @@ def gosub_1400():
     print()
     print(f"    ECCENTRICITY MODE : {kern_label}")
     print(f"    FTG. WIDTH  = {ss.B:.2f}{ss.P2}")
-    print(f"    FTG.  T     = {ss.T[ss.G]:.2f}{ss.P1}")
+    print(f"    FTG.  T     = {ss.Tftg:.2f}{ss.P1}")
     print(f"    X           = {ss.X:.2f}{ss.P2}")
 
     ss.E1 = abs(ss.B / 2.0 - ss.X)
@@ -732,8 +735,8 @@ def gosub_1400():
     else:
         print("    OT S.F. = N/A")
 
-    # FIX: Tftg_ft = T[G] / 12.0 always (no incorrect guard)
-    Tftg_ft  = ss.T[ss.G] / 12.0
+    # Use stored Tftg (enforced minimum 12 in) for sliding resistance
+    Tftg_ft  = ss.Tftg / 12.0
     friction  = ss.W6 * ss.C9
     passive   = ss.P4 * Tftg_ft * ss.B
     lateral   = ss.P3
@@ -895,7 +898,7 @@ if st.button("🔄 Reset All Inputs"):
         "M1","M2","M3","M4","M5","M6","M7","M8","X","S","E","E1","E2","K1",
         "Areq","A2","P1s","K","J","A1","S9","D9","R","P3","P9","X9","B","M",
         "I1","I2","TABLE_ROWS","KERN_MODE","output_log","initialized",
-        "pl_P9","pl_X9","show_ptload","Pf_applied",
+        "pl_P9","pl_X9","show_ptload","Pf_applied","Tftg",
     ]
     for key in keys_to_clear:
         if key in st.session_state:
