@@ -617,12 +617,10 @@ def gosub_830():
 
         # --------------------------------------------------
         # Initial totals: start WITHOUT Pf (assume within kern).
-        # Iterative kern-Pf loop:
-        #   iteration 0: no Pf → compute X → check kern
-        #   if outside kern: add Pf → recompute → check again
-        #   repeat until kern status is stable (max 10 iters)
+        # Pf is always applied regardless of kern status.
         # --------------------------------------------------
-        _recalc_totals(use_pf=False)
+        _recalc_totals(use_pf=True)
+        ss.Pf_applied = True
 
         MAX_FOOTING_ITER = 200   # safety cap on outer widening loop
         outer_iter = 0
@@ -630,27 +628,11 @@ def gosub_830():
         while outer_iter < MAX_FOOTING_ITER:
             outer_iter += 1
 
-            # --- iterative Pf/kern solve ---
-            pf_on = False   # start without Pf
-            for _ in range(10):
-                _recalc_totals(use_pf=pf_on)
-                X_try = ss.M6 / ss.W6 if ss.W6 != 0 else 0
-                e_try = abs(ss.B / 2.0 - X_try)
-                outside_kern = (e_try > ss.B / 6.0)
-                new_pf_on = outside_kern  # apply Pf only when outside kern
-                if new_pf_on == pf_on:
-                    break
-                pf_on = new_pf_on
-
-            # Record final Pf state for reporting
-            ss.Pf_applied = pf_on
-            if not pf_on:
-                ss.Mpf = 0.0   # ensure Mpf=0 when Pf not applied
+            _recalc_totals(use_pf=True)
 
             # Final X and eccentricity
             ss.X  = ss.M6 / ss.W6 if ss.W6 != 0 else 0
             ss.E1 = abs(ss.B / 2.0 - ss.X)
-            outside_kern = (ss.E1 > ss.B / 6.0)
 
             # --- eccentricity / kern check ---
             need_widen = False
@@ -662,14 +644,14 @@ def gosub_830():
                     need_widen = True
 
             if need_widen:
-                _widen(use_pf=pf_on)
+                _widen(use_pf=True)
                 continue
 
             # --- S.F. overturning >= 1.5 ---
             OTM = ss.M4
             RM  = ss.M6 + ss.M4
             if OTM > 0 and RM / OTM < 1.5:
-                _widen(use_pf=pf_on)
+                _widen(use_pf=True)
                 continue
 
             # --- S.F. sliding >= 1.5 ---
@@ -678,7 +660,7 @@ def gosub_830():
             passive  = ss.P4 * Tftg_ft * ss.B
             lateral  = ss.P3
             if lateral > 0 and (friction + passive) / lateral < 1.5:
-                _widen(use_pf=pf_on)
+                _widen(use_pf=True)
                 continue
 
             # --- Max soil bearing <= allowable ---
@@ -689,7 +671,7 @@ def gosub_830():
             else:
                 S_max = (ss.W6 / ss.B) * (1.0 + 6.0 * ss.E1 / ss.B)
             if S_max > ss.S2:
-                _widen(use_pf=pf_on)
+                _widen(use_pf=True)
                 continue
 
             # all checks passed
@@ -717,8 +699,7 @@ def gosub_1400():
     kern_label2 = "B/3" if ss.KERN_MODE == 2 else "B/6"
     kern_limit  = ss.B / 3.0 if ss.KERN_MODE == 2 else ss.B / 6.0
 
-    pf_note = "APPLIED (e > B/6)" if ss.Pf_applied else "NOT APPLIED (e within kern)"
-    print(f"    BACK-FACE FRICTION (Pf={ss.Pf:.2f} lb) : {pf_note}")
+    print(f"    BACK-FACE FRICTION (Pf={ss.Pf:.2f} lb) : APPLIED (always)")
 
     if ss.KERN_MODE == 1 and ss.E1 > ss.B / 6.0:
         contact = 3.0 * ss.X if ss.X < ss.B / 2.0 else 3.0 * (ss.B - ss.X)
@@ -771,7 +752,7 @@ def gosub_1400():
 # ------------------------------------------------------------
 def gosub_1610():
     ss = st.session_state
-    pf_label = f"Pf={ss.Pf:.2f} lb APPLIED" if ss.Pf_applied else f"Pf NOT APPLIED (e within kern)"
+    pf_label = f"Pf={ss.Pf:.2f} lb APPLIED (always)"
     print("    ITEMS          W           M      NOTES")
     print(f"    WALL       {ss.W1:10.2f}  {ss.M1:10.2f}")
     print(f"    FTG.       {ss.W2:10.2f}  {ss.M2:10.2f}")
