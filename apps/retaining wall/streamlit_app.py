@@ -157,7 +157,8 @@ def gosub_140():
         H2_in_default = (ss.H2 * 12.0) if ss.H2 else 8.0
         H2_in = st.number_input("WALL HEIGHT INCREMENT (IN)", value=H2_in_default)
         ss.H2 = H2_in / 12.0
-        ss.E = st.number_input("TOE (IN)", value=ss.E if ss.E else 8.0)
+        e_label = "HEEL (IN)" if ss.T1 == 1 else "TOE (IN)"
+        ss.E = st.number_input(e_label, value=ss.E if ss.E else 8.0)
 
         kern_index = 0 if ss.KERN_MODE == 1 else 1
         kern_sel = st.selectbox(
@@ -256,7 +257,8 @@ def gosub_print_header():
     if ss.S1 != 0:
         print(f"    SURCHARGE              = {ss.S1:8.2f}{ss.P2}")
     if ss.E != 0:
-        print(f"    TOE                    = {ss.E:8.2f}{ss.P1}")
+        e_label = "HEEL" if ss.T1 == 1 else "TOE"
+        print(f"    {e_label:<22}         = {ss.E:8.2f}{ss.P1}")
     print(f"    ALLOWABLE SOIL BEARING = {ss.S2:8.2f}{ss.P3s}")
     print(f"    ALLOWABLE STL. STRESS  = {ss.Y:8.2f} (KSI)")
     kern_label = "ALLOW OUTSIDE KERN" if ss.KERN_MODE == 1 else "FORCE INSIDE KERN"
@@ -290,7 +292,8 @@ def gosub_1210():
     if ss.S1 != 0:
         print(f"    SURCHARGE              = {ss.S1:8.2f}{ss.P2}")
     if ss.E != 0:
-        print(f"    TOE                    = {ss.E:8.2f}{ss.P1}")
+        e_label = "HEEL" if ss.T1 == 1 else "TOE"
+        print(f"    {e_label:<22}         = {ss.E:8.2f}{ss.P1}")
     print(f"    ALLOWABLE SOIL BEARING = {ss.S2:8.2f}{ss.P3s}")
     print(f"    ALLOWABLE STL. STRESS  = {ss.Y:8.2f} (KSI)")
     kern_label = "ALLOW OUTSIDE KERN" if ss.KERN_MODE == 1 else "FORCE INSIDE KERN"
