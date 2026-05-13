@@ -1,9 +1,9 @@
 # =============================================================================
 # RETAINING WALL PROGRAM  (original: 2-14-85)
-# Python conversion — fully corrected  Rev-3
+# Python conversion — fully corrected  Rev-4
 # =============================================================================
 #
-# BUGS FIXED (Rev-3 adds fixes 17 and 18):
+# BUGS FIXED (Rev-4 adds fix 19):
 #
 #  1.  S1 (surcharge) defaults to 0.0 on empty Enter.
 #  2.  C1 (slab on grade) defaults to 0 on empty Enter.
@@ -82,6 +82,8 @@ A1 = 0.0
 S9 = 0.0
 D9 = 0
 P3 = 0.0
+W_bf = 0.0   # back-friction vertical component (P3*tan_delta)
+M_bf = 0.0   # back-friction stabilising moment
 P9 = X9 = 0.0
 B  = 0.0
 M  = 0.0
@@ -116,7 +118,7 @@ def _inp(prompt, default):
 # =============================================================================
 def gosub_1580():
     print("\n\nRETAINING WALL PROGRAM")
-    print("REV. 2-14-85  (Python — Rev-3 corrected)")
+    print("REV. 2-14-85  (Python — Rev-4 corrected)")
 
 
 # =============================================================================
@@ -378,6 +380,7 @@ def gosub_830():
     global T, G, T1, E, H2, H1, W1, W5, M1, M5
     global C1, H4, B, W2, M2, W6, M6, P3, M4, M3
     global W7, M7, W8, M8, L, L1, S2, E1, X, C, L2, S, Tftg
+    global W_bf, M_bf
 
     # FOOTING THICKNESS (inches)
     # Tftg = max(wall stem thickness at top, 12-in ACI minimum).
@@ -492,6 +495,25 @@ def gosub_830():
     # Final store
     E1 = abs(B / 2.0 - X)
 
+    # BACK FRICTION RULE (user-specified):
+    # Wall friction vertical component = P3 * tan(δ), δ≈17° → tan≈0.3.
+    # Applied ONLY when resultant is OUTSIDE the kern (E1 > B/6).
+    # When within kern the footing is already well-balanced; adding back
+    # friction would make a good design appear better than warranted.
+    TAN_DELTA = 0.3          # wall friction coefficient (CMU on soil)
+    arm_bf    = L / 12.0     # back face of wall from toe (ft)
+    if E1 > B / 6.0 + 1e-4:
+        W_bf = P3 * TAN_DELTA
+        M_bf = W_bf * arm_bf
+        # Recompute totals to include back friction
+        W6 += W_bf
+        M6 += M_bf
+        X   = (M6 + M4) / W6
+        E1  = abs(B / 2.0 - X)
+    else:
+        W_bf = 0.0
+        M_bf = 0.0
+
 
 # =============================================================================
 # ORIENTATION TEXT
@@ -565,6 +587,13 @@ def gosub_1400():
         print(f"    SOIL BEAR'G MIN = {S_min:.2f}{P3s}")
         print(f"    ECCENTRICITY    = {E1:.3f}{P2}  (B/6={B/6:.3f}{P2})  WITHIN KERN")
 
+    # Back-friction note
+    if W_bf > 0.0:
+        print(f"    BACK FRICTION   = P3×tan(δ) = {P3:.2f}×0.30 = {W_bf:.2f}{P4s}  (E OUTSIDE KERN — applied)")
+        print(f"    BACK FRIC. ARM  = {M_bf/W_bf:.3f}{P2}  (back face of wall from toe)")
+    else:
+        print(f"    BACK FRICTION   = 0  (E WITHIN KERN — not applied per design rule)")
+
     OTM = M4;  RM = W6 * X
     if OTM > 0:
         SF = RM / OTM
@@ -615,6 +644,10 @@ def gosub_1610():
     if W7: print(f"    WEDGE 1       {W7:11.2f}     {M7:12.2f}")
     if W8: print(f"    WEDGE 2       {W8:11.2f}     {M8:12.2f}")
     print(f"    LATERAL (OTM) {'---':>11}     {M4:12.2f}  (overturning)")
+    if W_bf > 0.0:
+        print(f"    BACK FRICTION {W_bf:12.2f}     {M_bf:12.2f}  (E outside kern — P3×0.30)")
+    else:
+        print(f"    BACK FRICTION {'0':>12}     {'0':>12}  (E within kern — not applied)")
     print(f"    TOTAL VERT.   {W6:11.2f}     {M6:12.2f}  (net stab = ΣM_vert − M4)")
     print()
 
@@ -688,6 +721,8 @@ def main():
 
     W4 = W7 = W8 = 0.0
     M3 = M7 = M8 = 0.0
+    globals()['W_bf'] = 0.0
+    globals()['M_bf'] = 0.0
     TABLE_ROWS.clear()
 
     gosub_1580()
