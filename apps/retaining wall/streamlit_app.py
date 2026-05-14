@@ -688,6 +688,21 @@ def gosub_830():
                     _widen(use_pf=True)
                     continue
 
+                # --- Kern check (controlled by KERN_MODE) ---
+                # E1 = eccentricity = |B/2 - X| where X is from HEEL
+                # X_toe = B - X  (resultant from TOE)
+                X_toe = ss.B - ss.X
+                if ss.KERN_MODE == 2:
+                    # Force inside kern: E1 <= B/6
+                    if ss.E1 > ss.B / 6.0:
+                        _widen(use_pf=True)
+                        continue
+                else:
+                    # Allow outside kern but resultant must stay on footing
+                    if X_toe <= 0 or X_toe >= ss.B:
+                        _widen(use_pf=True)
+                        continue
+
                 # --- Sliding S.F. >= 1.5 ---
                 Tftg_ft = Tftg / 12.0
                 friction = ss.W6 * ss.C9
@@ -697,8 +712,15 @@ def gosub_830():
                     _widen(use_pf=True)
                     continue
 
-                # --- Soil bearing <= allowable (uses X from HEEL) ---
-                S_max = (ss.W6 / ss.B) * (1.0 + 6.0 * ss.E1 / ss.B)
+                # --- Soil bearing <= allowable ---
+                # Use triangular formula when outside kern, trapezoidal when inside
+                if ss.E1 > ss.B / 6.0:
+                    # Outside kern: triangular bearing, contact = 3*X_toe
+                    contact = 3.0 * X_toe if X_toe > 0 else 0.001
+                    S_max = 2.0 * ss.W6 / contact
+                else:
+                    # Inside kern: trapezoidal
+                    S_max = (ss.W6 / ss.B) * (1.0 + 6.0 * ss.E1 / ss.B)
                 if S_max > ss.S2:
                     _widen(use_pf=True)
                     continue
@@ -774,16 +796,28 @@ def gosub_1400():
     ss.E1 = abs(ss.B / 2.0 - ss.X)
 
     if ss.T1 == 1:
-        # X from HEEL; E1 = eccentricity from centre
+        # X from HEEL; X_toe from TOE
+        X_toe = ss.B - ss.X
         kern_status = "WITHIN KERN" if ss.E1 <= ss.B / 6.0 else "OUTSIDE KERN"
-        kern_flag   = "** OK **"    if ss.E1 <= ss.B / 6.0 else "** OUTSIDE KERN **"
-        S_max = (ss.W6 / ss.B) * (1.0 + 6.0 * ss.E1 / ss.B)
-        S_min = (ss.W6 / ss.B) * (1.0 - 6.0 * ss.E1 / ss.B)
-        sb_flag = "  ** OK **" if S_max <= ss.S2 else f"  ** NG — EXCEEDS ALLOWABLE {ss.S2:.0f} PSF **"
-        print(f"    ECCENTRICITY    = {ss.E1:.2f}{ss.P2}  "
+        kern_mode_label = "FORCE INSIDE KERN" if ss.KERN_MODE == 2 else "ALLOW OUTSIDE KERN"
+        print(f"    ECCENTRICITY MODE : {kern_mode_label}")
+        print(f"    X from HEEL = {ss.X:.2f}{ss.P2},  X from TOE = {X_toe:.2f}{ss.P2}")
+        print(f"    ECCENTRICITY (E1) = {ss.E1:.2f}{ss.P2}  "
               f"(B/6 = {ss.B/6:.2f}{ss.P2})  ** {kern_status} **")
-        print(f"    SOIL BEAR'G MAX = {S_max:.2f}{ss.P3s}", sb_flag)
-        print(f"    SOIL BEAR'G MIN = {S_min:.2f}{ss.P3s}")
+        if ss.E1 > ss.B / 6.0:
+            contact = 3.0 * X_toe if X_toe > 0 else 0.001
+            S_max = 2.0 * ss.W6 / contact
+            S_min = 0.0
+            sb_flag = "  ** OK **" if S_max <= ss.S2 else f"  ** NG — EXCEEDS {ss.S2:.0f} PSF **"
+            print(f"    ** TRIANGULAR BEARING (outside kern) **")
+            print(f"    SOIL BEAR'G MAX = {S_max:.2f}{ss.P3s}", sb_flag)
+            print(f"    SOIL BEAR'G MIN =   0.00{ss.P3s}  (tension — footing lifts)")
+        else:
+            S_max = (ss.W6 / ss.B) * (1.0 + 6.0 * ss.E1 / ss.B)
+            S_min = (ss.W6 / ss.B) * (1.0 - 6.0 * ss.E1 / ss.B)
+            sb_flag = "  ** OK **" if S_max <= ss.S2 else f"  ** NG — EXCEEDS {ss.S2:.0f} PSF **"
+            print(f"    SOIL BEAR'G MAX = {S_max:.2f}{ss.P3s}", sb_flag)
+            print(f"    SOIL BEAR'G MIN = {S_min:.2f}{ss.P3s}")
         print(f"    SOIL BEAR'G ALL = {ss.S2:.2f}{ss.P3s}")
         # OT S.F. about TOE — explicit arm-to-TOE per item
         RM_toe  = ss._RM_toe
