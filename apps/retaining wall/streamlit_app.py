@@ -697,7 +697,7 @@ def gosub_1400():
         print(f"    PASSIVE RES = P4 x Tftg x B = {ss.P4:.0f} x {Tftg_ft:.2f} x {ss.B:.2f} = {passive_no_key:.2f} (LB)")
         if ss.key_used and ss.Dk > 0:
             passive_key = ss.P4 * ss.Dk * (Tftg_ft + ss.Dk / 2.0)
-            print(f"    ** SHEAR KEY: {ss.Dk*12:.0f}"x{ss.Wk*12:.0f}" — sliding N.G. without key **")
+            print(f"    ** SHEAR KEY: {int(ss.Dk*12)}IN x {int(ss.Wk*12)}IN — sliding N.G. without key **")
             print(f"    KEY PASSIVE = P4 x Dk x (Tftg+Dk/2)")
             print(f"              = {ss.P4:.0f} x {ss.Dk:.2f} x ({Tftg_ft:.2f}+{ss.Dk/2:.2f}) = {passive_key:.2f} (LB)")
             print(f"    TOTAL PASS  = {passive_no_key:.2f} + {passive_key:.2f} = {passive:.2f} (LB)")
