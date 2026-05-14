@@ -611,11 +611,12 @@ def gosub_830():
             M1 += W * arm_w
             # Earth on heel / behind wall
             if ss.T1 == 1:
-                # BASIC: step earth only (no E-strip for Type 1)
-                # W = (T[G]-T[i])*H3*100/12 ; arm = (L+T[i]/2+(T[G]-T[i])/2)/12
-                step_in = ss.T[ss.G] - Ti     # in inches
+                # BASIC Type 1: step earth + E-strip (toe-side earth column)
+                # Step earth: (T[G]-T[i])*H3*100/12 ; arm=(L+T[i]/2+(T[G]-T[i])/2)/12
+                step_in = ss.T[ss.G] - Ti
                 Ws = step_in * H3 * 100.0 / 12.0
                 arm_e = (ss.L + Ti / 2.0 + step_in / 2.0) / 12.0
+                # E-strip is accumulated outside the loop (added once below)
             elif ss.T1 == 2:
                 # BASIC: heel earth = L*H3*100/12 ; arm = L/24
                 Ws = ss.L * H3 * 100.0 / 12.0
@@ -627,6 +628,14 @@ def gosub_830():
                 arm_e = (ss.L + Ti / 2.0 + step_in / 2.0) / 12.0
             W5 += Ws
             M5 += Ws * arm_e
+        # E-strip for Type 1: earth column in toe overhang, full wall height
+        # W = E/12 * H1 * 100 ; arm from TOE = E/24
+        if ss.T1 == 1:
+            W_E   = (ss.E / 12.0) * ss.H1 * 100.0
+            arm_E = ss.E / 24.0
+            W5 += W_E
+            M5 += W_E * arm_E
+
         return W1, M1, W5, M5
 
     def _build_totals():
@@ -637,7 +646,7 @@ def gosub_830():
         ss.W2 = 12.5 * Tftg * ss.B
         ss.M2 = ss.W2 * ss.B / 2.0
 
-        ss.Pf  = ss.P3 / 3.0       # rubbing back friction = P3/3
+        ss.Pf  = ss.P3          # BASIC hex: W6=W1+W2+W5+P3 (full P3, labeled "P/3" in output)
         ss.Mpf = ss.Pf * (ss.L / 12.0)
 
         if ss.T1 == 1:
@@ -869,7 +878,7 @@ def gosub_1610():
     print("    ITEMS          W           M      NOTES")
     print(f"    WALL       {ss.W1:10.2f}  {ss.M1:10.2f}")
     print(f"    FTG.       {ss.W2:10.2f}  {ss.M2:10.2f}")
-    print(f"    P/3        {ss.Pf:10.2f}  {ss.Mpf:10.2f}  (rubbing back friction = P3/3)")
+    print(f"    P/3        {ss.Pf:10.2f}  {ss.Mpf:10.2f}  (rubbing back friction, label=P/3, value=P3)")
     print(f"    EARTH      {ss.W5:10.2f}  {ss.M5:10.2f}")
     print(f"    EARTH      {ss.W7:10.2f}  {ss.M7:10.2f}")
     print(f"    EARTH      {ss.W8:10.2f}  {ss.M8:10.2f}")
