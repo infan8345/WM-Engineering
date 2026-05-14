@@ -728,11 +728,8 @@ def gosub_1610():
 # ------------------------------------------------------------
 def gosub_1700():
     ss = st.session_state
-
-    st.sidebar.subheader("Point Load Check (KEY‑3)")
-    ss.P9 = st.sidebar.number_input("P (LB)", value=ss.P9)
-    ss.X9 = st.sidebar.number_input("X9 (FT)", value=ss.X9)
-    B_trial = st.sidebar.number_input("B (FTG WIDTH - FT)", value=ss.B if ss.B else 0.0)
+    # P9, X9 are set from always-visible sidebar widgets (see main layout)
+    B_trial = ss.B   # use footing width from design
 
     Q1 = ss.W1 + B_trial * 150 + ss.P3 + ss.W4 + ss.W5 + ss.W7 + ss.W8 + ss.P9
     Q2 = ss.M1 + B_trial * 150 * B_trial / 2 + ss.M3 + ss.M4 + ss.M5 + ss.M7 + ss.M8 + ss.P9 * ss.X9
@@ -775,12 +772,37 @@ def gosub_1700():
 
 st.title("Retaining Wall Program — Streamlit Version")
 
+# Always render sidebar inputs on every rerun (Fix: door-closing bug)
+gosub_140()
+
+# Always-visible point load inputs in sidebar
+if "show_ptload" not in st.session_state:
+    st.session_state.show_ptload = False
+if "pl_P9" not in st.session_state:
+    st.session_state.pl_P9 = 0.0
+if "pl_X9" not in st.session_state:
+    st.session_state.pl_X9 = 0.0
+
+with st.sidebar:
+    st.markdown("---")
+    st.session_state.show_ptload = st.checkbox(
+        "Show Point Load inputs (KEY-3)",
+        value=st.session_state.show_ptload
+    )
+    if st.session_state.show_ptload:
+        st.subheader("Point Load Check (KEY-3)")
+        st.number_input("P (LB)",  step=1.0, format="%g", key="pl_P9")
+        st.number_input("X9 (FT)", step=0.1, format="%g", key="pl_X9")
+
+# Sync point load values to session state on every rerun
+st.session_state.P9 = st.session_state.pl_P9
+st.session_state.X9 = st.session_state.pl_X9
+
 col1, col2, col3 = st.columns(3)
 col4, col5, col6 = st.columns(3)
 
 if col1.button("Run Input Block"):
     gosub_1580()
-    gosub_140()
     gosub_5000()
     gosub_print_header()
 
