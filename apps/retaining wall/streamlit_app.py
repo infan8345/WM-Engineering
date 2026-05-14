@@ -867,18 +867,18 @@ def gosub_1400():
 # gosub_1610 — MOMENT BREAKDOWN
 # ------------------------------------------------------------
 def gosub_1610():
-    """Moment breakdown — KEY-2. Matches BASIC output labels."""
+    """Moment breakdown — KEY-2."""
     ss = st.session_state
     print("    ITEMS          W           M      NOTES")
     print(f"    WALL       {ss.W1:10.2f}  {ss.M1:10.2f}")
     print(f"    FTG.       {ss.W2:10.2f}  {ss.M2:10.2f}")
-    print(f"    P/3        {ss.Pf:10.2f}  {ss.Mpf:10.2f}  (rubbing back friction, label=P/3, value=P3)")
     print(f"    EARTH      {ss.W5:10.2f}  {ss.M5:10.2f}")
     print(f"    EARTH      {ss.W7:10.2f}  {ss.M7:10.2f}")
     print(f"    EARTH      {ss.W8:10.2f}  {ss.M8:10.2f}")
     print(f"    O.T.M.     {'---':>10}  {ss.M4:10.2f}  lateral earth OTM")
     print(f"    TOTAL      {ss.W6:10.2f}  {ss.M6:10.2f}")
     print(f"    P3 (horiz) {ss.P3:10.2f}  {'(lateral)':>10}  earth pressure resultant")
+    print(f"    Pf=P3/3    {ss.Pf:10.2f}  {'(sliding)':>10}  rubbing back friction — sliding resist. only, NOT in W6")
     print()
 
 # ------------------------------------------------------------
