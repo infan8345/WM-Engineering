@@ -593,12 +593,16 @@ def gosub_830():
             ss.Mpf  = mpf_val
 
             if ss.T1 == 1:
-                # Type 1: Pf=P3/3 vertical at heel (M=0), M4 adds to M6
+                # Type 1: Pf = P3/3 (vertical back-face friction component).
+                # Acts downward → increases normal force on footing base →
+                # increases base friction. Include in W6 so friction = W6×C9
+                # correctly reflects the full normal force. Do NOT add Pf again
+                # separately in the sliding check (that was the prior double-count).
                 ss.Pf   = ss.P3 / 3.0
                 ss.Mpf  = 0.0
                 ss.M3   = 0.0
-                ss.W6   = ss.W1 + ss.W2 + ss.W5 + ss.Pf
-                ss.M6   = ss.M1 + ss.M2 + ss.M5 + ss.M4
+                ss.W6   = ss.W1 + ss.W2 + ss.W5 + ss.Pf  # Pf adds to normal force
+                ss.M6   = ss.M1 + ss.M2 + ss.M5 - ss.M4  # OTM reduces X from heel
             elif ss.T1 != 4:
                 ss.M3  = 0.0
                 ss.W6  = ss.W1 + ss.W2 + ss.W5 + pf_val
@@ -722,11 +726,12 @@ def gosub_830():
                         continue
 
                 # --- Sliding S.F. >= 1.5 ---
-                # When USE_KEY is on, skip sliding as a widen trigger here;
-                # a post-convergence key check handles it after B is final.
-                Tftg_ft = Tftg / 12.0
-                friction = ss.W6 * ss.C9
-                passive  = ss.P4 * Tftg_ft        # lb/ft — P4(psf) × depth(ft)
+                # Code does not permit back-face friction (Pf) to resist sliding.
+                # W6 includes Pf for OT/soil-bearing purposes, but sliding friction
+                # uses gravity loads only: (W6 - Pf) × C9.
+                Tftg_ft  = Tftg / 12.0
+                friction = (ss.W6 - ss.Pf) * ss.C9    # gravity loads only × C9
+                passive  = ss.P4 * Tftg_ft
                 lateral  = ss.P3
                 if lateral > 0 and (friction + passive) / lateral < 1.5 and not ss.USE_KEY:
                     _widen(use_pf=True)
@@ -803,14 +808,14 @@ def gosub_830():
         # --------------------------------------------------
         if ss.USE_KEY:
             Tftg_ft  = Tftg / 12.0
-            friction = ss.W6 * ss.C9
-            passive  = ss.P4 * Tftg_ft        # lb/ft
+            # Sliding friction excludes Pf per code (not permitted for sliding resistance)
+            friction = (ss.W6 - (ss.Pf if ss.T1 == 1 else 0.0)) * ss.C9
+            passive  = ss.P4 * Tftg_ft
             lateral  = ss.P3
+            pf_resist = 0.0
             if lateral > 0 and (friction + passive) / lateral < 1.5:
-                # Total passive = P4*(Tftg+Hk). Footing passive P4*Tftg already in 'passive'.
-                # Solve for Hk (depth below footing bottom) so that SF = 1.5 exactly:
-                #   friction + P4*Tftg + P4*Hk = 1.5 * lateral
-                #   Hk = (1.5*lateral - friction - passive) / P4
+                # Solve for Hk so that total resistance / lateral = 1.5
+                # friction + passive + Pf + P4*Hk = 1.5 * lateral
                 Hk_needed = (1.5 * lateral - friction - passive) / ss.P4 if ss.P4 > 0 else 0.0
                 # Round up to next whole inch, 12-inch minimum
                 import math
@@ -895,17 +900,20 @@ def gosub_1400():
             print(f"    RM  (about TOE) = {RM_toe:.2f} (FT-LB)")
             print(f"    OTM (about TOE) = P3 x H4/3 = {ss.P3:.2f} x {ss.H4/3.0:.3f} = {OTM_toe:.2f} (FT-LB)")
             print(f"    OT S.F. = {RM_toe:.2f}/{OTM_toe:.2f} = {SF_OT:.2f}", ot_flag)
-        # Sliding
-        Tftg_ft = ss.Tftg / 12.0
-        friction = ss.W6 * ss.C9
-        passive  = ss.P4 * Tftg_ft             # lb/ft — P4(psf) × Tftg(ft)
+        # Sliding — Type 1
+        # Code does not permit Pf to resist sliding. W6 includes Pf for OT/bearing,
+        # but sliding friction uses gravity loads only: (W6 - Pf) × C9.
+        Tftg_ft  = ss.Tftg / 12.0
+        W6_grav  = ss.W6 - ss.Pf              # gravity loads only (excl. Pf)
+        friction = W6_grav * ss.C9
+        passive  = ss.P4 * Tftg_ft
         lateral  = ss.P3
         if lateral > 0:
             key_passive = ss.P4 * ss.KEY_Hk if ss.KEY_used else 0.0
             total_resist = friction + passive + key_passive
             SF_SL = total_resist / lateral
             sl_flag = "  ** OK **" if SF_SL >= 1.5 else "  ** NG — S.F. < 1.5 **"
-            print(f"    BASE FRIC.  = W6 x C9    = {ss.W6:.2f} x {ss.C9:.2f} = {friction:.2f} (LB)")
+            print(f"    BASE FRIC.  = (W6-Pf) x C9 = ({ss.W6:.2f}-{ss.Pf:.2f}) x {ss.C9:.2f} = {friction:.2f} (LB)  (Pf excluded per code)")
             if ss.KEY_used:
                 Hk_in = round(ss.KEY_Hk * 12.0)
                 key_passive = ss.P4 * ss.KEY_Hk
@@ -914,13 +922,12 @@ def gosub_1400():
                 print(f"    KEY PASSIVE = P4 x Hk            = {ss.P4:.0f} x {ss.KEY_Hk:.3f} = {key_passive:.2f} (LB)  ** SHEAR KEY **")
                 print(f"    TOTAL PASS  = P4 x (Tftg+Hk)    = {ss.P4:.0f} x ({Tftg_ft:.2f}+{ss.KEY_Hk:.3f}) = {total_passive:.2f} (LB)")
                 print(f"    KEY DEPTH   = {Hk_in} IN below bottom of footing")
+                print(f"    LATERAL     = P3          = {lateral:.2f} (LB)")
+                print(f"    SL S.F. = (FRIC+PASS+KEY)/LAT = ({friction:.2f}+{passive:.2f}+{key_passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
             else:
                 print(f"    PASSIVE RES = P4 x Tftg  = {ss.P4:.0f} x {Tftg_ft:.2f} = {passive:.2f} (LB)")
-            print(f"    LATERAL     = P3          = {lateral:.2f} (LB)")
-            if ss.KEY_used:
-                print(f"    SL S.F. = (FRIC+PASSIVE+KEY)/LAT = ({friction:.2f}+{passive:.2f}+{key_passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
-            else:
-                print(f"    SL S.F. = ({friction:.2f}+{passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
+                print(f"    LATERAL     = P3          = {lateral:.2f} (LB)")
+                print(f"    SL S.F. = (FRIC+PASS)/LAT = ({friction:.2f}+{passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
         return
 
     kern_label2 = "B/3" if ss.KERN_MODE == 2 else "B/6"
@@ -993,16 +1000,22 @@ def gosub_1400():
 # ------------------------------------------------------------
 def gosub_1610():
     ss = st.session_state
-    pf_label = f"Pf={ss.Pf:.2f} lb APPLIED (always)"
+    pf_label = f"Pf={ss.Pf:.2f} lb"
+    if ss.T1 == 1:
+        pf_note = "back-face friction (separate sliding resistance, not in W6)"
+        otm_note = "lateral earth OTM (subtracted from M6)"
+    else:
+        pf_note = "APPLIED (always)" if ss.Pf_applied else "NOT applied"
+        otm_note = "lateral earth OTM (subtracted from M6)"
     print("    ITEMS          W           M      NOTES")
     print(f"    WALL       {ss.W1:10.2f}  {ss.M1:10.2f}")
     print(f"    FTG.       {ss.W2:10.2f}  {ss.M2:10.2f}")
     print(f"    HEEL EARTH {ss.W5:10.2f}  {ss.M5:10.2f}")
-    print(f"    BACK FRIC. {ss.Pf if ss.Pf_applied else 0.0:10.2f}  {ss.Mpf:10.2f}  {pf_label} (arm={ss.L/12:.2f} ft)")
+    print(f"    BACK FRIC. {ss.Pf:10.2f}  {ss.Mpf:10.2f}  {pf_label} — {pf_note}")
     print(f"    HEEL SOIL2 {ss.W7:10.2f}  {ss.M7:10.2f}")
     print(f"    HEEL SOIL3 {ss.W8:10.2f}  {ss.M8:10.2f}")
-    print(f"    O.T.M.     {'---':>10}  {ss.M4:10.2f}  lateral earth OTM (subtracted from M6)")
-    print(f"    TOTAL      {ss.W6:10.2f}  {ss.M6:10.2f}")
+    print(f"    O.T.M.     {'---':>10}  {ss.M4:10.2f}  {otm_note}")
+    print(f"    TOTAL      {ss.W6:10.2f}  {ss.M6:10.2f}  (gravity loads only for Type 1)")
     print(f"    P3 (horiz) {ss.P3:10.2f}  {'(lateral)':>10}  earth pressure resultant (not in W)")
     print()
 
