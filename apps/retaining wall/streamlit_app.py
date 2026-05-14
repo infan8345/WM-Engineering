@@ -514,7 +514,7 @@ def gosub_830():
             ss.W1 += W
 
             if ss.T1 == 1:
-                ss.M1 += W * (ss.L - ss.T[i] / 2.0) / 12.0
+                ss.M1 += W * (ss.E / 12.0 + ss.T[i] / 24.0)
             else:
                 ss.M1 += W * (ss.L + ss.T[i] / 2.0) / 12.0
 
