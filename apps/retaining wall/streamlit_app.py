@@ -471,7 +471,7 @@ def gosub_360():
 # ------------------------------------------------------------
 def gosub_1205():
     ss = st.session_state
-    ss.P3 = (ss.S1 * ss.P * ss.H4 + ss.P * ss.H4 * ss.H4 / 2.0) / 3.0
+    ss.P3 = ss.S1 * ss.P * ss.H4 + ss.P * ss.H4 * ss.H4 / 2.0
     ss.M4 = ss.S1 * ss.P * ss.H4 * ss.H4 / 2.0 + ss.P * ss.H4 ** 3 / 6.0
 
 # ------------------------------------------------------------
@@ -575,59 +575,50 @@ def gosub_830():
         while True:
             ss.X = ss.M6 / ss.W6 if ss.W6 != 0 else 0
 
-            # --- 1. Eccentricity / kern check ---
+            # 1. Kern / eccentricity check
             if ss.KERN_MODE == 1:
-                # Allow outside kern: only reject if resultant off footing
                 if ss.X <= 0 or ss.X >= ss.B:
                     _widen(); continue
             else:
-                # Force inside kern (middle third)
                 if ss.X < ss.B / 3.0 or ss.X > 2.0 * ss.B / 3.0:
                     _widen(); continue
 
-            # --- 2. S.F. overturning >= 1.5 ---
+            # 2. S.F. overturning >= 1.5
+            # M6 = M1+M2+M3+M4+M5, so RM = M6-M4
             OTM = ss.M4
-            RM  = ss.M6 - ss.M4   # M6 = M1+M2+M3+M4+M5, so RM = M6-M4
+            RM  = ss.M6 - ss.M4
             if OTM > 0 and RM / OTM < 1.5:
                 _widen(); continue
 
-            # --- 3. S.F. sliding >= 1.5 ---
-            # Try without key first; if NG try 12"x12" shear key
-            # before widening B. Key adds passive resistance:
-            #   P_key = P4 x Dk x (Tftg_ft + Dk/2)
-            Tftg_ft  = Tftg / 12.0
+            # 3. S.F. sliding >= 1.5
+            # Try without key first; if NG try 12x12 shear key before widening B
+            Tftg_ft = Tftg / 12.0
             friction = ss.W6 * ss.C9
             passive_no_key = ss.P4 * Tftg_ft * ss.B
-            lateral  = ss.P3
+            lateral = ss.P3
             if lateral > 0 and (friction + passive_no_key) / lateral < 1.5:
-                # Try 12"x12" shear key
-                Dk = 1.0   # 12 inches = 1 ft
-                Wk = 1.0   # 12 inches = 1 ft
+                Dk = 1.0  # 12-in key depth in ft
                 passive_key = ss.P4 * Dk * (Tftg_ft + Dk / 2.0)
-                passive_with_key = passive_no_key + passive_key
-                if lateral > 0 and (friction + passive_with_key) / lateral >= 1.5:
-                    ss.Dk = Dk; ss.Wk = Wk; ss.key_used = True
+                if (friction + passive_no_key + passive_key) / lateral >= 1.5:
+                    ss.Dk = Dk; ss.Wk = 1.0; ss.key_used = True
                 else:
-                    # Key not enough — widen B and clear key
                     ss.Dk = 0.0; ss.Wk = 0.0; ss.key_used = False
                     _widen(); continue
             else:
                 ss.Dk = 0.0; ss.Wk = 0.0; ss.key_used = False
 
-            # --- 4. Max soil bearing <= allowable ---
+            # 4. Soil bearing <= allowable
             ss.E1 = abs(ss.B / 2.0 - ss.X)
             if ss.E1 > ss.B / 6.0:
-                # Outside kern: triangular distribution
-                # X is from toe for non-Type1; contact = 3*X (capped at B)
-                a = min(3.0 * ss.X, ss.B) if ss.X < ss.B / 2.0 else min(3.0 * (ss.B - ss.X), ss.B)
+                # Outside kern: triangular bearing
+                a = min(3.0 * ss.X, ss.B) if ss.X <= ss.B / 2.0 else min(3.0 * (ss.B - ss.X), ss.B)
                 S_max = 2.0 * ss.W6 / a if a > 0 else 9999
             else:
-                # Inside kern: trapezoidal
                 S_max = (ss.W6 / ss.B) * (1.0 + 6.0 * ss.E1 / ss.B)
             if S_max > ss.S2:
                 _widen(); continue
 
-            # all checks passed
+            # All checks passed
             break
 
         break
@@ -648,8 +639,8 @@ def gosub_1400():
     ss.E1 = abs(ss.B / 2.0 - ss.X)
 
     if ss.E1 > ss.B / 6.0:
-        # Outside kern: triangular bearing
-        a = min(3.0 * ss.X, ss.B) if ss.X < ss.B / 2.0 else min(3.0 * (ss.B - ss.X), ss.B)
+        # Outside kern: triangular bearing distribution
+        a = min(3.0 * ss.X, ss.B) if ss.X <= ss.B / 2.0 else min(3.0 * (ss.B - ss.X), ss.B)
         S_max = 2.0 * ss.W6 / a if a > 0 else 9999
         S_min = 0.0
         sb_flag = "  ** OK **" if S_max <= ss.S2 else f"  ** NG — EXCEEDS {ss.S2:.0f} PSF **"
@@ -670,7 +661,7 @@ def gosub_1400():
         print(f"    ECCENTRICITY    = {ss.E1:.2f}{ss.P2}  (B/6 = {ss.B/6:.2f}{ss.P2})  ** {kern_st} **")
 
     OTM = ss.M4
-    RM  = ss.M6 - ss.M4   # M6 = RM + M4 - M4... check: M6=M1+M2+M3+M4+M5, RM=M6-M4
+    RM  = ss.M6 - ss.M4   # M6 = M1+M2+M3+M4+M5, so RM = M6-M4
     if OTM > 0:
         SF_OT = RM / OTM
         ot_flag = "  ** OK **" if SF_OT >= 1.5 else "  ** NG — S.F. < 1.5 **"
@@ -680,16 +671,16 @@ def gosub_1400():
     else:
         print("    OT S.F. = N/A")
 
-    # S.F. sliding
+    # S.F. sliding — with shear key if used
     Tftg_ft = ss.T[ss.G] / 12.0
     friction = ss.W6 * ss.C9
     passive_no_key = ss.P4 * Tftg_ft * ss.B
-    lateral  = ss.P3
     if ss.key_used and ss.Dk > 0:
         passive_key = ss.P4 * ss.Dk * (Tftg_ft + ss.Dk / 2.0)
         passive = passive_no_key + passive_key
     else:
         passive = passive_no_key
+    lateral = ss.P3
     if lateral > 0:
         SF_SL = (friction + passive) / lateral
         sl_flag = "  ** OK **" if SF_SL >= 1.5 else "  ** NG — S.F. < 1.5 **"
@@ -697,10 +688,9 @@ def gosub_1400():
         print(f"    PASSIVE RES = P4 x Tftg x B = {ss.P4:.0f} x {Tftg_ft:.2f} x {ss.B:.2f} = {passive_no_key:.2f} (LB)")
         if ss.key_used and ss.Dk > 0:
             passive_key = ss.P4 * ss.Dk * (Tftg_ft + ss.Dk / 2.0)
-            print(f"    ** SHEAR KEY: {int(ss.Dk*12)}IN x {int(ss.Wk*12)}IN — sliding N.G. without key **")
-            print(f"    KEY PASSIVE = P4 x Dk x (Tftg+Dk/2)")
-            print(f"              = {ss.P4:.0f} x {ss.Dk:.2f} x ({Tftg_ft:.2f}+{ss.Dk/2:.2f}) = {passive_key:.2f} (LB)")
-            print(f"    TOTAL PASS  = {passive_no_key:.2f} + {passive_key:.2f} = {passive:.2f} (LB)")
+            print(f"    ** SHEAR KEY ADDED: {int(ss.Dk*12)}IN x {int(ss.Wk*12)}IN — sliding NG without key **")
+            print(f"    KEY PASSIVE = P4 x Dk x (Tftg+Dk/2) = {ss.P4:.0f} x {ss.Dk:.2f} x {(Tftg_ft+ss.Dk/2):.2f} = {passive_key:.2f} (LB)")
+            print(f"    TOTAL PASSV = {passive_no_key:.2f} + {passive_key:.2f} = {passive:.2f} (LB)")
         print(f"    LATERAL     = P3             = {lateral:.2f} (LB)")
         print(f"    SL S.F. = ({friction:.2f}+{passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
     else:
@@ -728,8 +718,11 @@ def gosub_1610():
 # ------------------------------------------------------------
 def gosub_1700():
     ss = st.session_state
-    # P9, X9 are set from always-visible sidebar widgets (see main layout)
-    B_trial = ss.B   # use footing width from design
+
+    st.sidebar.subheader("Point Load Check (KEY‑3)")
+    ss.P9 = st.sidebar.number_input("P (LB)", value=ss.P9)
+    ss.X9 = st.sidebar.number_input("X9 (FT)", value=ss.X9)
+    B_trial = st.sidebar.number_input("B (FTG WIDTH - FT)", value=ss.B if ss.B else 0.0)
 
     Q1 = ss.W1 + B_trial * 150 + ss.P3 + ss.W4 + ss.W5 + ss.W7 + ss.W8 + ss.P9
     Q2 = ss.M1 + B_trial * 150 * B_trial / 2 + ss.M3 + ss.M4 + ss.M5 + ss.M7 + ss.M8 + ss.P9 * ss.X9
@@ -772,7 +765,7 @@ def gosub_1700():
 
 st.title("Retaining Wall Program — Streamlit Version")
 
-# Always render sidebar inputs on every rerun (Fix: door-closing bug)
+# Always render sidebar on every rerun (prevents door-closing bug)
 gosub_140()
 
 # Always-visible point load inputs in sidebar
@@ -794,7 +787,6 @@ with st.sidebar:
         st.number_input("P (LB)",  step=1.0, format="%g", key="pl_P9")
         st.number_input("X9 (FT)", step=0.1, format="%g", key="pl_X9")
 
-# Sync point load values to session state on every rerun
 st.session_state.P9 = st.session_state.pl_P9
 st.session_state.X9 = st.session_state.pl_X9
 
@@ -841,7 +833,7 @@ if st.button("🔄 Reset All Inputs"):
         "F1","F2","N1","N2","G","W1","W2","W3","W4","W5","W6","W7","W8",
         "M1","M2","M3","M4","M5","M6","M7","M8","X","S","E","E1","E2","K1",
         "Areq","A2","P1s","K","J","A1","S9","D9","R","P3","P9","X9","B","M",
-        "I1","I2","TABLE_ROWS","KERN_MODE","Dk","Wk","key_used"
+        "I1","I2","TABLE_ROWS","KERN_MODE","Dk","Wk","key_used","pl_P9","pl_X9","show_ptload"
     ]
 
     for key in keys_to_clear:
