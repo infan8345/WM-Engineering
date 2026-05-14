@@ -637,7 +637,7 @@ def gosub_830():
         ss.W2 = 12.5 * Tftg * ss.B
         ss.M2 = ss.W2 * ss.B / 2.0
 
-        ss.Pf  = ss.P3          # BASIC: vertical back-face = P3 (full lateral)
+        ss.Pf  = ss.P3 / 3.0       # rubbing back friction = P3/3
         ss.Mpf = ss.Pf * (ss.L / 12.0)
 
         if ss.T1 == 1:
@@ -869,7 +869,7 @@ def gosub_1610():
     print("    ITEMS          W           M      NOTES")
     print(f"    WALL       {ss.W1:10.2f}  {ss.M1:10.2f}")
     print(f"    FTG.       {ss.W2:10.2f}  {ss.M2:10.2f}")
-    print(f"    P/3        {ss.Pf:10.2f}  {ss.Mpf:10.2f}  (vertical back-face, Pf=P3)")
+    print(f"    P/3        {ss.Pf:10.2f}  {ss.Mpf:10.2f}  (rubbing back friction = P3/3)")
     print(f"    EARTH      {ss.W5:10.2f}  {ss.M5:10.2f}")
     print(f"    EARTH      {ss.W7:10.2f}  {ss.M7:10.2f}")
     print(f"    EARTH      {ss.W8:10.2f}  {ss.M8:10.2f}")
