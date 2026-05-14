@@ -58,6 +58,10 @@ def initialize_globals():
         "KERN_MODE": 1,
         # Store final Pf state for reporting
         "Pf_applied": False,
+        # Shear key
+        "USE_KEY": False,
+        "KEY_Hk": 0.0,    # key depth in ft — set to 1.0 (12 in) when engaged
+        "KEY_used": False, # True when key was actually needed and applied
     }
 
     for name, value in names_defaults.items():
@@ -167,6 +171,19 @@ def gosub_140():
             index=kern_index
         )
         ss.KERN_MODE = 1 if kern_sel.startswith("ALLOW") else 2
+
+        st.markdown("---")
+        st.subheader("Shear Key Option")
+        ss.USE_KEY = st.checkbox(
+            "Use 12\" shear key (if sliding is the only failure)",
+            value=ss.USE_KEY
+        )
+        if ss.USE_KEY:
+            st.caption(
+                "When checked: B is sized for OT / kern / soil bearing only. "
+                "If sliding still fails after B is final, a 12\" deep key is added "
+                "and its passive resistance (P4 × 1 ft) is credited."
+            )
 
 def gosub_5000():
     pass
@@ -487,6 +504,7 @@ def gosub_1205():
 def gosub_830():
     ss = st.session_state
 
+    ss.KEY_used = False   # reset each run
     first_pass = True
     while True:
         # --- FIX 1: minimum footing thickness = 12 in ---
@@ -704,11 +722,13 @@ def gosub_830():
                         continue
 
                 # --- Sliding S.F. >= 1.5 ---
+                # When USE_KEY is on, skip sliding as a widen trigger here;
+                # a post-convergence key check handles it after B is final.
                 Tftg_ft = Tftg / 12.0
                 friction = ss.W6 * ss.C9
                 passive  = ss.P4 * Tftg_ft * ss.B
                 lateral  = ss.P3
-                if lateral > 0 and (friction + passive) / lateral < 1.5:
+                if lateral > 0 and (friction + passive) / lateral < 1.5 and not ss.USE_KEY:
                     _widen(use_pf=True)
                     continue
 
@@ -751,11 +771,13 @@ def gosub_830():
                     continue
 
                 # --- S.F. sliding >= 1.5 ---
+                # When USE_KEY is on, skip sliding as a widen trigger here;
+                # a post-convergence key check handles it after B is final.
                 Tftg_ft = Tftg / 12.0
                 friction = ss.W6 * ss.C9
                 passive  = ss.P4 * Tftg_ft * ss.B
                 lateral  = ss.P3
-                if lateral > 0 and (friction + passive) / lateral < 1.5:
+                if lateral > 0 and (friction + passive) / lateral < 1.5 and not ss.USE_KEY:
                     _widen(use_pf=True)
                     continue
 
@@ -772,6 +794,27 @@ def gosub_830():
 
             # all checks passed
             break
+
+        # --------------------------------------------------
+        # Post-convergence sliding check with shear key.
+        # B is now final (driven only by OT, kern, soil bearing).
+        # If USE_KEY is on and sliding still fails, add a 12-in key.
+        # Key passive = P4 * Hk (1 ft deep = 12 in default).
+        # --------------------------------------------------
+        if ss.USE_KEY:
+            Tftg_ft  = Tftg / 12.0
+            friction = ss.W6 * ss.C9
+            passive  = ss.P4 * Tftg_ft * ss.B
+            lateral  = ss.P3
+            if lateral > 0 and (friction + passive) / lateral < 1.5:
+                KEY_DEPTH_IN = 12.0          # fixed 12-inch key
+                ss.KEY_Hk    = KEY_DEPTH_IN / 12.0   # store as ft
+                key_passive  = ss.P4 * ss.KEY_Hk
+                if (friction + passive + key_passive) / lateral >= 1.5:
+                    ss.KEY_used = True
+                else:
+                    # Key alone not enough — note it but still NG
+                    ss.KEY_used = True   # report the attempt; output will show NG
 
         break
 
@@ -855,12 +898,20 @@ def gosub_1400():
         passive  = ss.P4 * Tftg_ft * ss.B
         lateral  = ss.P3
         if lateral > 0:
-            SF_SL = (friction + passive) / lateral
+            key_passive = ss.P4 * ss.KEY_Hk if ss.KEY_used else 0.0
+            total_resist = friction + passive + key_passive
+            SF_SL = total_resist / lateral
             sl_flag = "  ** OK **" if SF_SL >= 1.5 else "  ** NG — S.F. < 1.5 **"
             print(f"    BASE FRIC.  = W6 x C9       = {ss.W6:.2f} x {ss.C9:.2f} = {friction:.2f} (LB)")
             print(f"    PASSIVE RES = P4 x Tftg x B = {ss.P4:.0f} x {Tftg_ft:.2f} x {ss.B:.2f} = {passive:.2f} (LB)")
+            if ss.KEY_used:
+                print(f"    KEY PASSIVE = P4 x Hk       = {ss.P4:.0f} x {ss.KEY_Hk:.2f} = {key_passive:.2f} (LB)  ** SHEAR KEY **")
+                print(f"    KEY DEPTH   = {ss.KEY_Hk*12:.0f} IN below bottom of footing")
             print(f"    LATERAL     = P3             = {lateral:.2f} (LB)")
-            print(f"    SL S.F. = ({friction:.2f}+{passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
+            if ss.KEY_used:
+                print(f"    SL S.F. = (FRIC+PASSIVE+KEY)/LAT = ({friction:.2f}+{passive:.2f}+{key_passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
+            else:
+                print(f"    SL S.F. = ({friction:.2f}+{passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
         return
 
     kern_label2 = "B/3" if ss.KERN_MODE == 2 else "B/6"
@@ -905,12 +956,20 @@ def gosub_1400():
     passive   = ss.P4 * Tftg_ft * ss.B
     lateral   = ss.P3
     if lateral > 0:
-        SF_SL = (friction + passive) / lateral
+        key_passive = ss.P4 * ss.KEY_Hk if ss.KEY_used else 0.0
+        total_resist = friction + passive + key_passive
+        SF_SL = total_resist / lateral
         sl_flag = "  ** OK **" if SF_SL >= 1.5 else "  ** NG — S.F. < 1.5 **"
         print(f"    BASE FRIC.  = W6 x C9       = {ss.W6:.2f} x {ss.C9:.2f} = {friction:.2f} (LB)")
         print(f"    PASSIVE RES = P4 x Tftg x B = {ss.P4:.0f} x {Tftg_ft:.2f} x {ss.B:.2f} = {passive:.2f} (LB)")
+        if ss.KEY_used:
+            print(f"    KEY PASSIVE = P4 x Hk       = {ss.P4:.0f} x {ss.KEY_Hk:.2f} = {key_passive:.2f} (LB)  ** SHEAR KEY **")
+            print(f"    KEY DEPTH   = {ss.KEY_Hk*12:.0f} IN below bottom of footing")
         print(f"    LATERAL     = P3             = {lateral:.2f} (LB)")
-        print(f"    SL S.F. = (BASE FRIC.+PASSIVE)/LATERAL = ({friction:.2f}+{passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
+        if ss.KEY_used:
+            print(f"    SL S.F. = (FRIC+PASSIVE+KEY)/LAT = ({friction:.2f}+{passive:.2f}+{key_passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
+        else:
+            print(f"    SL S.F. = (BASE FRIC.+PASSIVE)/LATERAL = ({friction:.2f}+{passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
     else:
         print("    SL S.F. = N/A")
 
@@ -1064,6 +1123,7 @@ if st.button("🔄 Reset All Inputs"):
         "I1","I2","TABLE_ROWS","KERN_MODE","output_log","initialized",
         "pl_P9","pl_X9","show_ptload","Pf_applied","Tftg",
         "_RM_toe","_OTM_toe","_SF_OT",
+        "USE_KEY","KEY_Hk","KEY_used",
     ]
     for key in keys_to_clear:
         if key in st.session_state:
