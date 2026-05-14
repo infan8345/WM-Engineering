@@ -318,7 +318,7 @@ def gosub_print_header():
     if ss.S1 != 0:
         print(f"    SURCHARGE              = {ss.S1:8.2f}{ss.P2}")
     if ss.E != 0:
-        print(f"    TOE                    = {ss.E:8.2f}{ss.P1}")
+        print(f"    TOE (SHORT SIDE)       = {ss.E:8.2f}{ss.P1}")
     print(f"    ALLOWABLE SOIL BEARING = {ss.S2:8.2f}{ss.P3s}")
     print(f"    ALLOWABLE STL. STRESS  = {ss.Y:8.2f} (KSI)")
 
@@ -357,7 +357,7 @@ def gosub_1210():
     if ss.S1 != 0:
         print(f"    SURCHARGE              = {ss.S1:8.2f}{ss.P2}")
     if ss.E != 0:
-        print(f"    TOE                    = {ss.E:8.2f}{ss.P1}")
+        print(f"    TOE (SHORT SIDE)       = {ss.E:8.2f}{ss.P1}")
     print(f"    ALLOWABLE SOIL BEARING = {ss.S2:8.2f}{ss.P3s}")
     print(f"    ALLOWABLE STL. STRESS  = {ss.Y:8.2f} (KSI)")
 
@@ -460,12 +460,11 @@ def gosub_360():
     heights = []
     h = 0.0
     while True:
-        h += ss.H2
-        if h >= ss.H1:
-            h = ss.H1
-            heights.append(round(h, 6))
+        h = round(h + ss.H2, 6)
+        if h >= ss.H1 - 0.001:
+            heights.append(round(ss.H1, 6))
             break
-        heights.append(round(h, 6))
+        heights.append(h)
 
     MAX_DVAL = 30.0
 
@@ -545,8 +544,11 @@ def gosub_360():
             print(f"    NOTE: {blk_name} zone starts at H={ss.H:.2f} ft (24-in min zone enforced).")
         prev_I = I
 
-        if ss.Cw == 1 or I > 4 or ss.D[I] == 0:
-            # Concrete fallback
+        if ss.Cw == 1 or I > 4 or (I <= 4 and ss.D[I] == 0):
+            # Concrete fallback (Cw=1, or CMU block size not enabled by user)
+            if I in (2, 3) and ss.D[I] == 0:
+                blk_name = {2:"12-in", 3:"16-in"}[I]
+                print(f"    NOTE: {blk_name} CMU required but disabled — using concrete stem instead.")
             prev_I_cmu = max(1, I - 1)
             save_Cw, save_F2, save_N2, save_Dval = ss.Cw, ss.F2, ss.N2, ss.Dval
             ss.Dval = ss.D[prev_I_cmu] if (prev_I_cmu <= 4 and ss.D[prev_I_cmu] != 0) else 5.5
@@ -806,9 +808,13 @@ def gosub_830():
             #              use trapezoidal formula (no tension zone)
             ss.E1 = abs(ss.B / 2.0 - ss.X)
             if ss.KERN_MODE == 1 and ss.E1 > ss.B / 6.0:
-                # Outside kern — triangular bearing block
-                contact = 3.0 * ss.X if ss.X < ss.B / 2.0 else 3.0 * (ss.B - ss.X)
-                S_max = 2.0 * ss.W6 / contact if contact > 0 else 9999
+                # Outside kern — triangular bearing
+                # a = 3 x distance from resultant to closer edge; capped at B
+                if ss.X <= ss.B / 2.0:
+                    a = min(3.0 * ss.X, ss.B)
+                else:
+                    a = min(3.0 * (ss.B - ss.X), ss.B)
+                S_max = 2.0 * ss.W6 / a if a > 0 else 9999
             else:
                 # Inside kern — trapezoidal, no tension
                 S_max = (ss.W6 / ss.B) * (1.0 + 6.0 * ss.E1 / ss.B)
@@ -829,9 +835,9 @@ def gosub_1400():
     kern_label = "ALLOW OUTSIDE KERN" if ss.KERN_MODE == 1 else "FORCE INSIDE KERN"
     print()
     print(f"    ECCENTRICITY MODE : {kern_label}")
-    print(f"    FTG. WIDTH  = {ss.B:.2f}{ss.P2}")
-    print(f"    FTG.  T     = {ss.T[ss.G]:.2f}{ss.P1}")
-    print(f"    X           = {ss.X:.2f}{ss.P2}")
+    print(f"    FTG. WIDTH  (B) = {ss.B:.2f}{ss.P2}")
+    print(f"    FTG. THICKNESS  = {ss.T[ss.G]:.2f}{ss.P1}")
+    print(f"    RESULTANT X     = {ss.X:.2f}{ss.P2}  (measured from TOE)")
 
     ss.E1 = abs(ss.B / 2.0 - ss.X)
 
@@ -839,14 +845,25 @@ def gosub_1400():
     kern_limit  = ss.B / 3.0 if ss.KERN_MODE == 2 else ss.B / 6.0
 
     if ss.KERN_MODE == 1 and ss.E1 > ss.B / 6.0:
-        # Mode 1: outside kern — triangular bearing, one edge lifts
-        contact = 3.0 * ss.X if ss.X < ss.B / 2.0 else 3.0 * (ss.B - ss.X)
-        S_max = 2.0 * ss.W6 / contact if contact > 0 else 9999
+        # Mode 1: outside kern — triangular bearing distribution
+        # Resultant X from toe; bearing concentrates at closer edge
+        # Contact length a = 3 * (distance from resultant to closer edge)
+        # S_max = 2 * W6 / a  (peak at edge, zero at a from edge)
+        if ss.X <= ss.B / 2.0:
+            # Resultant closer to toe — bearing peaks at toe
+            a = 3.0 * ss.X
+        else:
+            # Resultant closer to heel — bearing peaks at heel
+            a = 3.0 * (ss.B - ss.X)
+        a = min(a, ss.B)   # contact cannot exceed footing width
+        S_max = 2.0 * ss.W6 / a if a > 0 else 9999
         S_min = 0.0
         sb_flag = "  ** OK **" if S_max <= ss.S2 else f"  ** NG — EXCEEDS ALLOWABLE {ss.S2:.0f} PSF **"
         print(f"    ** E > B/6 : RESULTANT OUTSIDE KERN **")
+        print(f"    CONTACT LENGTH a = 3 x X = 3 x {ss.X:.2f} = {a:.2f}{ss.P2}")
+        print(f"    S_MAX = 2 x W6 / a = 2 x {ss.W6:.2f} / {a:.2f} = {S_max:.2f}{ss.P3s}", sb_flag)
         print(f"    SOIL BEAR'G MAX = {S_max:.2f}{ss.P3s}", sb_flag)
-        print(f"    SOIL BEAR'G MIN =   0.00{ss.P3s}  (tension — footing lifts)")
+        print(f"    SOIL BEAR'G MIN =   0.00{ss.P3s}  (tension zone — footing lifts at heel)")
         print(f"    SOIL BEAR'G ALL = {ss.S2:.2f}{ss.P3s}")
         print(f"    ECCENTRICITY    = {ss.E1:.2f}{ss.P2}  ({kern_label2} = {kern_limit:.2f}{ss.P2})  ** OUTSIDE KERN **")
     else:
@@ -901,6 +918,9 @@ def gosub_1400():
 # ------------------------------------------------------------
 def gosub_1610():
     ss = st.session_state
+
+    # Recompute Mpf in case gosub_830 was not called this session
+    ss.Mpf = ss.Pf * (ss.L / 12.0)
 
     print("    ITEMS          W           M      NOTES")
     print(f"    WALL       {ss.W1:10.2f}  {ss.M1:10.2f}")
