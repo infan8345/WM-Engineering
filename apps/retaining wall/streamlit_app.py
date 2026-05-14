@@ -519,10 +519,11 @@ def gosub_830():
                 ss.M1 += W * (ss.L + ss.T[i] / 2.0) / 12.0
 
             if ss.T1 == 1:
-                heel_ft = ss.B - ss.L / 12.0
-                if heel_ft < 0: heel_ft = 0.0
-                W  = 100.0 * H3 * heel_ft
-                arm_ft = ss.L / 12.0 + heel_ft / 2.0
+                # earth_w = fixed earth-side overhang (E/12) + step exposure (T[G]-T[i])/12
+                earth_w = ss.E / 12.0 + (ss.T[ss.G] - ss.T[i]) / 12.0
+                if earth_w < 0: earth_w = 0.0
+                W  = 100.0 * H3 * earth_w
+                arm_ft = ss.B - earth_w / 2.0   # centroid from toe edge
                 Mw = W * arm_ft
             elif ss.T1 == 2:
                 heel_ft = ss.L / 12.0
@@ -586,10 +587,10 @@ def gosub_830():
                 if i == ss.G:
                     H3 = ss.H1 - ss.H2 * (ss.G - 1)
                 if ss.T1 == 1:
-                    heel_ft = ss.B - ss.L / 12.0
-                    if heel_ft < 0: heel_ft = 0.0
-                    W  = 100.0 * H3 * heel_ft
-                    arm_ft = ss.L / 12.0 + heel_ft / 2.0
+                    earth_w = ss.E / 12.0 + (ss.T[ss.G] - ss.T[i]) / 12.0
+                    if earth_w < 0: earth_w = 0.0
+                    W  = 100.0 * H3 * earth_w
+                    arm_ft = ss.B - earth_w / 2.0
                     Mw = W * arm_ft
                 elif ss.T1 == 2:
                     heel_ft = ss.L / 12.0
