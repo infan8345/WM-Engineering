@@ -774,11 +774,14 @@ def gosub_1400():
     ss.E1 = abs(ss.B / 2.0 - ss.X)
 
     if ss.T1 == 1:
-        # Type 1: soil bearing only
+        # X from HEEL; E1 = eccentricity from centre
+        kern_status = "WITHIN KERN" if ss.E1 <= ss.B / 6.0 else "OUTSIDE KERN"
+        kern_flag   = "** OK **"    if ss.E1 <= ss.B / 6.0 else "** OUTSIDE KERN **"
         S_max = (ss.W6 / ss.B) * (1.0 + 6.0 * ss.E1 / ss.B)
         S_min = (ss.W6 / ss.B) * (1.0 - 6.0 * ss.E1 / ss.B)
         sb_flag = "  ** OK **" if S_max <= ss.S2 else f"  ** NG — EXCEEDS ALLOWABLE {ss.S2:.0f} PSF **"
-        print(f"    ECCENTRICITY    = {ss.E1:.2f}{ss.P2}  (B/2 = {ss.B/2:.2f}{ss.P2})")
+        print(f"    ECCENTRICITY    = {ss.E1:.2f}{ss.P2}  "
+              f"(B/6 = {ss.B/6:.2f}{ss.P2})  ** {kern_status} **")
         print(f"    SOIL BEAR'G MAX = {S_max:.2f}{ss.P3s}", sb_flag)
         print(f"    SOIL BEAR'G MIN = {S_min:.2f}{ss.P3s}")
         print(f"    SOIL BEAR'G ALL = {ss.S2:.2f}{ss.P3s}")
