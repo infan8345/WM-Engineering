@@ -646,18 +646,16 @@ def gosub_830():
         ss.W2 = 12.5 * Tftg * ss.B
         ss.M2 = ss.W2 * ss.B / 2.0
 
-        ss.Pf  = ss.P3          # BASIC hex: W6=W1+W2+W5+P3 (full P3, labeled "P/3" in output)
+        ss.Pf  = ss.P3 / 3.0   # rubbing back friction = P3/3 (horizontal resistance only)
         ss.Mpf = ss.Pf * (ss.L / 12.0)
 
         if ss.T1 == 1:
-            # BASIC: W6=W1+W2+W5+P3 ; M6=M1+M2+M4+M5 (M4 added, arm=0 for Pf)
             ss.M3 = 0.0
-            ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.Pf
+            ss.W6 = ss.W1 + ss.W2 + ss.W5          # gravity loads only — Pf NOT in W6
             ss.M6 = ss.M1 + ss.M2 + ss.M4 + ss.M5
         elif ss.T1 == 2:
-            # BASIC: M3=0 ; W6=W1+W2+W5+P3 ; M6=M1+M2+M3+M5-M4
             ss.M3 = 0.0
-            ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.Pf
+            ss.W6 = ss.W1 + ss.W2 + ss.W5
             ss.M6 = ss.M1 + ss.M2 + ss.M3 + ss.M5 - ss.M4
         else:  # Type 4
             ss.L1  = ss.B - ss.L / 12.0 - Tftg / 12.0
@@ -667,7 +665,7 @@ def gosub_830():
             if ss.L2 != 0:
                 ss.W8 = 100.0 * (ss.L1 * ss.L2) / 2.0 * (ss.L1 * ss.L2)
                 ss.M8 = ss.W8 * (ss.L1 * ss.L2 / 3.0 + ss.L / 12.0 + Tftg / 12.0)
-            ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.Pf + ss.W7 + ss.W8
+            ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.W7 + ss.W8
             ss.M6 = ss.M1 + ss.M2 + ss.M3 + ss.M5 + ss.M7 + ss.M8 - ss.M4
 
     def _widen():
@@ -718,14 +716,13 @@ def gosub_830():
             continue
 
         # --- Sliding ---
-        # BASIC original: C9*W6 vs P3 (no passive in primary check)
-        # Enhanced: include passive on footing
-        # Pf excluded from sliding normal force per code (W6 includes Pf)
-        W6_grav  = ss.W6 - ss.Pf
+        # Pf = P3/3 acts as direct horizontal friction on wall back face.
+        # W6 is gravity only, so friction = W6×C9. Add Pf separately.
+        W6_grav  = ss.W6
         friction = W6_grav * ss.C9
         passive  = ss.P4 * (Tftg / 12.0)
         lateral  = ss.P3
-        if lateral > 0 and (friction + passive) / lateral < 1.5 and not ss.USE_KEY:
+        if lateral > 0 and (friction + passive + ss.Pf) / lateral < 1.5 and not ss.USE_KEY:
             _widen()
             continue
 
@@ -743,11 +740,11 @@ def gosub_830():
     else:
         RM_chk = ss.M6 + ss.M4;  OTM_chk = ss.M4
 
-    W6_grav  = ss.W6 - ss.Pf
+    W6_grav  = ss.W6
     friction = W6_grav * ss.C9
     passive  = ss.P4 * (Tftg / 12.0)
     lateral  = ss.P3
-    SF_SL_check = (friction + passive) / lateral if lateral > 0 else 999.0
+    SF_SL_check = (friction + passive + ss.Pf) / lateral if lateral > 0 else 999.0
     SF_OT_check = RM_chk / OTM_chk if OTM_chk > 0 else 999.0
 
     if SF_OT_check < 1.5:
@@ -771,13 +768,12 @@ def gosub_830():
     # Post-convergence shear key check (USE_KEY option)
     # --------------------------------------------------
     if ss.USE_KEY:
-        W6_grav  = ss.W6 - ss.Pf
-        friction = W6_grav * ss.C9
+        friction = ss.W6 * ss.C9
         passive  = ss.P4 * (Tftg / 12.0)
         lateral  = ss.P3
-        if lateral > 0 and (friction + passive) / lateral < 1.5:
-            # Solve: friction + P4*(Tftg/12 + Hk) = 1.5*lateral
-            Hk_needed = (1.5 * lateral - friction - passive) / ss.P4 if ss.P4 > 0 else 0.0
+        if lateral > 0 and (friction + passive + ss.Pf) / lateral < 1.5:
+            # Solve: friction + Pf + P4*(Tftg/12 + Hk) = 1.5*lateral
+            Hk_needed = (1.5 * lateral - friction - passive - ss.Pf) / ss.P4 if ss.P4 > 0 else 0.0
             Hk_in = max(12, math.ceil(Hk_needed * 12.0))
             ss.KEY_Hk  = Hk_in / 12.0
             ss.KEY_used = True
@@ -830,9 +826,8 @@ def gosub_1400():
     else:
         print("    OT S.F. = N/A")
 
-    # Sliding — BASIC style: show friction vs lateral, then passive, then key
-    W6_grav  = ss.W6 - ss.Pf      # Pf excluded from sliding per code
-    friction = W6_grav * ss.C9
+    # Sliding — W6 is gravity only; Pf=P3/3 added as direct horizontal resistance
+    friction = ss.W6 * ss.C9
     passive  = ss.P4 * Tftg_ft
     lateral  = ss.P3
     if lateral > 0:
@@ -840,32 +835,31 @@ def gosub_1400():
             print(f"    WITH SLAB SLID'G O.K.")
         else:
             print(f"    F--SLID'G   = {lateral:.2f}{ss.P4s}")
-            print(f"    F--FRICTION = {friction:.2f}{ss.P4s}  (W6-Pf)×C9 = ({ss.W6:.2f}-{ss.Pf:.2f})×{ss.C9:.2f}")
+            print(f"    F--FRICTION = {friction:.2f}{ss.P4s}  W6×C9 = {ss.W6:.2f}×{ss.C9:.2f}")
+            print(f"    BACK FRIC.  = {ss.Pf:.2f}{ss.P4s}  Pf = P3/3 = {lateral:.2f}/3")
             key_passive = ss.P4 * ss.KEY_Hk if ss.KEY_used else 0.0
-            total_resist = friction + passive + key_passive
+            total_resist = friction + ss.Pf + passive + key_passive
             SF_SL = total_resist / lateral
             sl_flag = "  ** OK **" if SF_SL >= 1.5 else "  ** NG — S.F. < 1.5 **"
-            if friction >= lateral:
+            if friction + ss.Pf >= lateral:
                 print(f"    FRICTION > SLIDING  O.K.")
-            elif friction + passive >= lateral:
+            elif friction + ss.Pf + passive >= lateral:
                 print(f"    WITH PASSIVE ON FTG.  O.K.")
                 print(f"    PASSIVE RES = P4×Tftg = {ss.P4:.0f}×{Tftg_ft:.2f} = {passive:.2f} (LB)")
-                print(f"    SL S.F. = ({friction:.2f}+{passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
+                print(f"    SL S.F. = ({friction:.2f}+{ss.Pf:.2f}+{passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
             elif ss.KEY_used:
                 Hk_in = round(ss.KEY_Hk * 12.0)
                 total_passive = passive + key_passive
-                # BASIC original key depth (for reference): INT((P3-C9*W6)*12/P4)
-                basic_key_in = int((lateral - friction) * 12.0 / ss.P4) if ss.P4 > 0 else 0
+                basic_key_in = int((lateral - friction - ss.Pf) * 12.0 / ss.P4) if ss.P4 > 0 else 0
                 print(f"    PASSIVE RES = P4×Tftg            = {ss.P4:.0f}×{Tftg_ft:.2f} = {passive:.2f} (LB)")
                 print(f"    KEY PASSIVE = P4×Hk              = {ss.P4:.0f}×{ss.KEY_Hk:.3f} = {key_passive:.2f} (LB)  ** SHEAR KEY **")
                 print(f"    TOTAL PASS  = P4×(Tftg+Hk)      = {ss.P4:.0f}×({Tftg_ft:.2f}+{ss.KEY_Hk:.3f}) = {total_passive:.2f} (LB)")
                 print(f"    KEY DEPTH   = {Hk_in} IN below bottom of footing  (SF=1.5; BASIC min = {basic_key_in} IN)")
-                print(f"    SL S.F. = ({friction:.2f}+{total_passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
+                print(f"    SL S.F. = ({friction:.2f}+{ss.Pf:.2f}+{total_passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
             else:
-                # USE_KEY off and still fails — original key depth from BASIC
                 key_depth_in = max(0.0, Tftg - ss.T[ss.G])
                 print(f"    USE {key_depth_in:.0f} (IN) DEEP KEY")
-                print(f"    SL S.F. = ({friction:.2f}+{passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
+                print(f"    SL S.F. = ({friction:.2f}+{ss.Pf:.2f}+{passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
     else:
         print("    SL S.F. = N/A")
 
