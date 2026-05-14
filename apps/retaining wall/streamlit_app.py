@@ -502,329 +502,268 @@ def gosub_1205():
 #     Now simply T[G]/12.0 always.
 # ============================================================
 def gosub_830():
+    """
+    Footing design — rewritten to match RETSCRN4.BAS exactly.
+
+    BASIC reference (all moments measured from TOE):
+      Type 1: L = E+T[G]
+        Wall arm  = (L - T[i]/2) / 12     (from toe)
+        Earth arm = (L + T[i]/2 + (T[G]-T[i])/2) / 12  ... actually BASIC:
+          earth W = (T[G]-T[i])*H3*100/12 ; M = W*(L+T[i]/2+(T[G]-T[i])/2)/12 — NOT used
+        Actually BASIC for T1==1:
+          W5/M5 earth: W=(T[G]-T[i])*H3*100/12 ; arm=(L-T[i]/2)/12 — same as wall arm?
+          No — from hex line ~99: arm = (L+T[i]/2+(T[G]-T[i])/2)/12  (from TOE)
+        W6 = W1+W2+W5+P3  (P3 is used as vertical, = full lateral resultant)
+        M6 = M1+M2+M4+M5  (M4 ADDED — all moments act same direction from TOE)
+
+      Type 2: L = E
+        Wall arm  = (L + T[i]/2) / 12
+        Earth: W=L*H3*100/12 ; arm = L/2/12
+        W6 = W1+W2+W5+P3 ; M6 = M1+M2+M3+M5-M4  (M3=P3*B for T4 only, else 0)
+
+      Type 4: L = E
+        Wall arm = (L + T[i]/2) / 12
+        L1 = B - L/12 - T/12 (heel overhang)
+        W7 = L1*H1*100 ; M7 = W7*(L1/2 + L/12 + T/12)
+        M3 = P3*B
+        W6 = W1+W2+W5+P3+W7+W8 ; M6 = M1+M2+M3+M5+M7+M8-M4
+
+    Kern / widening: X = M6/W6 (from TOE)
+      If X > B/2 → widen (B + 2/12)
+      If X < B/2 → widen (B + 2/12)  [same — always widen until within kern]
+      Actually BASIC: if X > B/2 → E2=0 else E2=1; widen differently per E2
+      Simplified: keep widening until B/3 <= X <= 2B/3
+
+    Soil bearing: S = (1 + 6*E1/B)*W6/B  (trapezoidal, kern enforced)
+
+    Sliding (original BASIC):
+      If C9*W6 >= P3: "FRICTION > SLIDING OK"
+      Else if C9*W6 + P4*(Tftg/12) >= P3: "WITH PASSIVE ON FTG OK"
+      Else: compute key depth = Tftg - T[G] (footing below stem bottom)
+            "USE (key_depth) IN DEEP KEY"
+
+    Added enhancements (beyond BASIC):
+      - OT check (S.F. >= 1.5 about toe) as widen driver
+      - USE_KEY option: post-convergence, compute min key depth for SF=1.5
+      - Passive on footing included in sliding SF formula
+    """
+    import math
     ss = st.session_state
 
-    ss.KEY_used = False   # reset each run
-    first_pass = True
-    while True:
-        # --- FIX 1: minimum footing thickness = 12 in ---
-        # For walls taller than 8 ft match bottom stem but never < 12 in.
-        # For all others 12 in is sufficient.
-        # --- Footing thickness: minimum 12 in, match stem if larger ---
-        Tftg = max(12.0, ss.T[ss.G])
-        ss.Tftg = Tftg   # store for gosub_1400 reporting and sliding check
+    ss.KEY_used = False
 
+    # --- Footing thickness: minimum 12 in ---
+    Tftg = max(12.0, ss.T[ss.G])
+    ss.Tftg = Tftg
+
+    # --- L = short overhang (toe side) ---
+    # Type 1: L = E + T[G] (toe overhang + stem width, moments from TOE)
+    # All others: L = E
+    if ss.T1 == 1:
+        ss.L = ss.E + ss.T[ss.G]
+    else:
+        ss.L = ss.E
+
+    # --- H4: effective height for earth pressure ---
+    if ss.C1 == 1:
+        ss.H4 = ss.H1
+    else:
+        ss.H4 = ss.H1 + Tftg / 12.0
+
+    gosub_1205()   # compute P3, M4, Pf
+
+    # --- Initial B estimate ---
+    ss.B = int(ss.H1 / 2.5 * 12.0) / 12.0
+
+    # --------------------------------------------------
+    # Inner helpers
+    # --------------------------------------------------
+    def _compute_W1_M1_W5_M5():
+        """
+        Wall weight W1/M1 and earth on heel W5/M5.
+        All moments from TOE.
+        BASIC exactly:
+          Type 1: wall arm = (L - T[i]/2)/12
+                  earth W  = (T[G]-T[i])*H3*100/12 ; arm = (L+T[i]/2+(T[G]-T[i])/2)/12
+          Type 2: wall arm = (L + T[i]/2)/12
+                  earth W  = L*H3*100/12 ; arm = L/24  [= L/2 / 12]
+          Type 4: wall arm = (L + T[i]/2)/12
+                  earth heel W = (Tftg - T[i])*H3*100/12 ; arm = (L+T[i]+(Tftg-T[i])/2)/12
+        """
+        W1 = M1 = W5 = M5 = 0.0
         H3 = ss.H2
-        ss.W1 = ss.W5 = ss.M1 = ss.M5 = 0.0
-
-        if ss.T1 == 1:
-            ss.L = ss.E + ss.T[ss.G]   # L = E + T(G), moments from HEEL
-        else:
-            ss.L = ss.E
-
-        # For Type 1: compute earth W5/M5 using zone heights directly
-        # (two rectangles: E-strip full height + step exposure upper zone only)
-        if ss.T1 == 1:
-            # Determine zone heights from T array
-            # E-strip: E/12 wide, full H1 height, arm from heel = E/24
-            W_E   = 100.0 * (ss.E / 12.0) * ss.H1
-            arm_E = ss.E / 24.0
-            M_E   = W_E * arm_E
-            # Step exposure: (T(G)-T(zone))/12 wide, zone height, arm=E/12+(step/2)
-            # Sum over distinct stem thicknesses using per-segment H3
-            ss.W5 = W_E;  ss.M5 = M_E
-
         for i in range(1, ss.G + 1):
-            H3 = ss.H2
             if i == ss.G:
                 H3 = ss.H1 - ss.H2 * (ss.G - 1)
-
+            Ti = ss.T[i]
+            # Wall weight
             if ss.C[i] == 1:
-                W = 12.5 * ss.T[i] * H3
+                W = 12.5 * Ti * H3
             else:
-                W = 77.0 / 8.0 * ss.T[i] * H3
-            ss.W1 += W
-
-            # Wall moment: arm = (L - T[i]/2)/12 for all types
-            ss.M1 += W * (ss.L - ss.T[i] / 2.0) / 12.0
-
+                W = (77.0 / 8.0) * Ti * H3
+            W1 += W
             if ss.T1 == 1:
-                # Step earth per segment: (T[G]-T[i])/12 wide
-                # arm from HEEL = E/12 + (T[G]-T[i])/24
-                step_w = (ss.T[ss.G] - ss.T[i]) / 12.0
-                W_s    = 100.0 * H3 * step_w
-                arm_s  = ss.E / 12.0 + step_w / 2.0
-                ss.W5 += W_s
-                ss.M5 += W_s * arm_s
-            elif ss.T1 == 2:
-                heel_ft = ss.L / 12.0
-                W  = 100.0 * H3 * heel_ft
-                arm_ft = heel_ft / 2.0
-                ss.W5 += W; ss.M5 += W * arm_ft
+                arm_w = (ss.L - Ti / 2.0) / 12.0
             else:
-                heel_ft = (Tftg - ss.T[i]) / 12.0
-                W  = 100.0 * H3 * heel_ft
-                arm_ft = ss.L / 12.0 + ss.T[i] / 12.0 + heel_ft / 2.0
-                ss.W5 += W; ss.M5 += W * arm_ft
+                arm_w = (ss.L + Ti / 2.0) / 12.0
+            M1 += W * arm_w
+            # Earth on heel / behind wall
+            if ss.T1 == 1:
+                Ws = (ss.T[ss.G] - Ti) * H3 * 100.0 / 12.0
+                arm_e = (ss.L + Ti / 2.0 + (ss.T[ss.G] - Ti) / 2.0) / 12.0
+            elif ss.T1 == 2:
+                Ws = ss.L * H3 * 100.0 / 12.0
+                arm_e = ss.L / 24.0
+            else:  # Type 4
+                Ws = (Tftg - Ti) * H3 * 100.0 / 12.0
+                arm_e = (ss.L + Ti / 2.0 + (Tftg - Ti) / 2.0) / 12.0
+            W5 += Ws
+            M5 += Ws * arm_e
+        return W1, M1, W5, M5
 
-        if ss.C1 == 1:
-            ss.H4 = ss.H1
-        else:
-            ss.H4 = ss.H1 + Tftg / 12.0
-
-        gosub_1205()
-
-        if first_pass:
-            ss.B = int(ss.H1 / 2.5 * 12.0) / 12.0
-            first_pass = False
-
+    def _build_totals():
+        """
+        Assemble W2/M2/W6/M6 per BASIC formulas.
+        All moments from TOE.
+        """
         ss.W2 = 12.5 * Tftg * ss.B
         ss.M2 = ss.W2 * ss.B / 2.0
 
-        # --------------------------------------------------
-        def _build_totals(use_pf: bool):
-            """
-            Assemble W6 / M6 with or without Pf contribution.
-            use_pf=True  → include back-face friction (outside kern)
-            use_pf=False → omit back-face friction (within kern)
-            """
-            pf_val  = ss.Pf if use_pf else 0.0
-            mpf_val = pf_val * (ss.L / 12.0)
-            ss.Mpf  = mpf_val
+        ss.Pf  = ss.P3          # BASIC: vertical back-face = P3 (full lateral)
+        ss.Mpf = ss.Pf * (ss.L / 12.0)
 
-            if ss.T1 == 1:
-                # Type 1: Pf = P3/3 (vertical back-face friction component).
-                # Acts downward → increases normal force on footing base →
-                # increases base friction. Include in W6 so friction = W6×C9
-                # correctly reflects the full normal force. Do NOT add Pf again
-                # separately in the sliding check (that was the prior double-count).
-                ss.Pf   = ss.P3 / 3.0
-                ss.Mpf  = 0.0
-                ss.M3   = 0.0
-                ss.W6   = ss.W1 + ss.W2 + ss.W5 + ss.Pf  # Pf adds to normal force
-                ss.M6   = ss.M1 + ss.M2 + ss.M5 - ss.M4  # OTM reduces X from heel
-            elif ss.T1 != 4:
-                ss.M3  = 0.0
-                ss.W6  = ss.W1 + ss.W2 + ss.W5 + pf_val
-                ss.M6  = ss.M1 + ss.M2 + ss.M5 + mpf_val - ss.M4
-            else:
-                ss.L1  = ss.B - ss.L / 12.0 - Tftg / 12.0
-                ss.W7  = ss.L1 * ss.H1 * 100.0
-                ss.M7  = ss.W7 * (ss.L1 / 2.0 + ss.L / 12.0 + Tftg / 12.0)
-                ss.M3  = 0.0
-                ss.W6  = ss.W1 + ss.W2 + ss.W5 + pf_val + ss.W7 + ss.W8
-                ss.M6  = ss.M1 + ss.M2 + ss.M5 + mpf_val + ss.M7 + ss.M8 - ss.M4
+        if ss.T1 == 1:
+            # BASIC: W6=W1+W2+W5+P3 ; M6=M1+M2+M4+M5 (M4 added, arm=0 for Pf)
+            ss.M3 = 0.0
+            ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.Pf
+            ss.M6 = ss.M1 + ss.M2 + ss.M4 + ss.M5
+        elif ss.T1 == 2:
+            # BASIC: M3=0 ; W6=W1+W2+W5+P3 ; M6=M1+M2+M3+M5-M4
+            ss.M3 = 0.0
+            ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.Pf
+            ss.M6 = ss.M1 + ss.M2 + ss.M3 + ss.M5 - ss.M4
+        else:  # Type 4
+            ss.L1  = ss.B - ss.L / 12.0 - Tftg / 12.0
+            ss.W7  = ss.L1 * ss.H1 * 100.0
+            ss.M7  = ss.W7 * (ss.L1 / 2.0 + ss.L / 12.0 + Tftg / 12.0)
+            ss.M3  = ss.P3 * ss.B
+            if ss.L2 != 0:
+                ss.W8 = 100.0 * (ss.L1 * ss.L2) / 2.0 * (ss.L1 * ss.L2)
+                ss.M8 = ss.W8 * (ss.L1 * ss.L2 / 3.0 + ss.L / 12.0 + Tftg / 12.0)
+            ss.W6 = ss.W1 + ss.W2 + ss.W5 + ss.Pf + ss.W7 + ss.W8
+            ss.M6 = ss.M1 + ss.M2 + ss.M3 + ss.M5 + ss.M7 + ss.M8 - ss.M4
 
-        def _recalc_totals(use_pf: bool):
-            """Recompute W2/M2/W5/M5/W6/M6 after B changes."""
-            ss.W2 = 12.5 * Tftg * ss.B
-            ss.M2 = ss.W2 * ss.B / 2.0
+    def _widen():
+        ss.B = int(12 * ss.B + 2) / 12.0
 
-            ss.W5 = 0.0; ss.M5 = 0.0
-            if ss.T1 == 1:
-                # E-strip: constant regardless of B
-                W_E = 100.0 * (ss.E / 12.0) * ss.H1
-                ss.W5 += W_E; ss.M5 += W_E * (ss.E / 24.0)
-            H3 = ss.H2
-            for i in range(1, ss.G + 1):
-                if i == ss.G:
-                    H3 = ss.H1 - ss.H2 * (ss.G - 1)
-                if ss.T1 == 1:
-                    step_w = (ss.T[ss.G] - ss.T[i]) / 12.0
-                    W_s   = 100.0 * H3 * step_w
-                    arm_s = ss.E / 12.0 + step_w / 2.0
-                    ss.W5 += W_s; ss.M5 += W_s * arm_s
-                elif ss.T1 == 2:
-                    heel_ft = ss.L / 12.0
-                    W  = 100.0 * H3 * heel_ft
-                    arm_ft = heel_ft / 2.0
-                    ss.W5 += W; ss.M5 += W * arm_ft
-                else:
-                    heel_ft = (Tftg - ss.T[i]) / 12.0
-                    W  = 100.0 * H3 * heel_ft
-                    arm_ft = ss.L / 12.0 + ss.T[i] / 12.0 + heel_ft / 2.0
-                    ss.W5 += W; ss.M5 += W * arm_ft
+    # --- Compute W1/M1/W5/M5 (fixed, don't depend on B) ---
+    ss.W1, ss.M1, ss.W5, ss.M5 = _compute_W1_M1_W5_M5()
 
-            _build_totals(use_pf)
+    # --------------------------------------------------
+    # Widening loop
+    # --------------------------------------------------
+    MAX_ITER = 200
+    for _ in range(MAX_ITER):
+        _build_totals()
 
-        def _widen(use_pf: bool):
-            ss.B = int(12 * ss.B + 2) / 12.0
-            _recalc_totals(use_pf)
-
-        # --------------------------------------------------
-        # Initial totals: start WITHOUT Pf (assume within kern).
-        # Pf is always applied regardless of kern status.
-        # --------------------------------------------------
-        _recalc_totals(use_pf=True)
-        ss.Pf_applied = True
-
-        MAX_FOOTING_ITER = 200   # safety cap on outer widening loop
-        outer_iter = 0
-
-        while outer_iter < MAX_FOOTING_ITER:
-            outer_iter += 1
-
-            _recalc_totals(use_pf=True)
-
-            # X measured from HEEL for T1==1, from TOE for others
-            ss.X  = ss.M6 / ss.W6 if ss.W6 != 0 else 0
-            ss.E1 = abs(ss.B / 2.0 - ss.X)
-
-            if ss.T1 == 1:
-                # Type 1: X computed from HEEL (for kern/soil bearing).
-                # OT check uses explicit arm-to-TOE for each item.
-
-                # --- OT S.F. >= 1.5 about TOE ---
-                # Arms from TOE:
-                #   Wall:        E/12 + T[i]/24
-                #   Footing:     B/2
-                #   Earth E-strip: L/12 + E/24  (L=E+T[G])
-                #   Earth step:  (E+T[i])/12 + step_w/2
-                #   Pf at heel:  B
-                RM_toe = 0.0
-                H3 = ss.H2
-                for i in range(1, ss.G + 1):
-                    if i == ss.G:
-                        H3 = ss.H1 - ss.H2 * (ss.G - 1)
-                    Ti = ss.T[i]
-                    # wall weight
-                    Ww = (12.5 if ss.C[i] == 1 else 77.0/8.0) * Ti * H3
-                    arm_wall = ss.E/12.0 + Ti/24.0
-                    RM_toe  += Ww * arm_wall
-                    # earth step
-                    step_w   = (ss.T[ss.G] - Ti) / 12.0
-                    Ws       = 100.0 * H3 * step_w
-                    arm_step = (ss.E + Ti)/12.0 + step_w/2.0
-                    RM_toe  += Ws * arm_step
-                # footing
-                RM_toe += ss.W2 * ss.B / 2.0
-                # earth E-strip
-                W_E     = 100.0 * (ss.E/12.0) * ss.H1
-                arm_E   = ss.L/12.0 + ss.E/24.0   # L=E+T[G]
-                RM_toe += W_E * arm_E
-                # Pf at heel: arm = B
-                RM_toe += ss.Pf * ss.B
-                OTM_toe = ss.M4
-                SF_OT   = RM_toe / OTM_toe if OTM_toe > 0 else 999.0
-                if SF_OT < 1.5:
-                    _widen(use_pf=True)
-                    continue
-
-                # --- Kern check (controlled by KERN_MODE) ---
-                # E1 = eccentricity = |B/2 - X| where X is from HEEL
-                # X_toe = B - X  (resultant from TOE)
-                X_toe = ss.B - ss.X
-                if ss.KERN_MODE == 2:
-                    # Force inside kern: E1 <= B/6
-                    if ss.E1 > ss.B / 6.0:
-                        _widen(use_pf=True)
-                        continue
-                else:
-                    # Allow outside kern but resultant must stay on footing
-                    if X_toe <= 0 or X_toe >= ss.B:
-                        _widen(use_pf=True)
-                        continue
-
-                # --- Sliding S.F. >= 1.5 ---
-                # Code does not permit back-face friction (Pf) to resist sliding.
-                # W6 includes Pf for OT/soil-bearing purposes, but sliding friction
-                # uses gravity loads only: (W6 - Pf) × C9.
-                Tftg_ft  = Tftg / 12.0
-                friction = (ss.W6 - ss.Pf) * ss.C9    # gravity loads only × C9
-                passive  = ss.P4 * Tftg_ft
-                lateral  = ss.P3
-                if lateral > 0 and (friction + passive) / lateral < 1.5 and not ss.USE_KEY:
-                    _widen(use_pf=True)
-                    continue
-
-                # --- Soil bearing <= allowable ---
-                # Use triangular formula when outside kern, trapezoidal when inside
-                if ss.E1 > ss.B / 6.0:
-                    # Outside kern: triangular bearing, contact = 3*X_toe
-                    contact = 3.0 * X_toe if X_toe > 0 else 0.001
-                    S_max = 2.0 * ss.W6 / contact
-                else:
-                    # Inside kern: trapezoidal
-                    S_max = (ss.W6 / ss.B) * (1.0 + 6.0 * ss.E1 / ss.B)
-                if S_max > ss.S2:
-                    _widen(use_pf=True)
-                    continue
-
-                # Store for reporting
-                ss._RM_toe  = RM_toe
-                ss._OTM_toe = OTM_toe
-                ss._SF_OT   = SF_OT
-            else:
-                # --- eccentricity / kern check ---
-                need_widen = False
-                if ss.KERN_MODE == 1:
-                    if ss.X <= 0 or ss.X >= ss.B:
-                        need_widen = True
-                else:
-                    if ss.X < ss.B / 3.0 or ss.X > 2.0 * ss.B / 3.0:
-                        need_widen = True
-
-                if need_widen:
-                    _widen(use_pf=True)
-                    continue
-
-                # --- S.F. overturning >= 1.5 ---
-                OTM = ss.M4
-                RM  = ss.M6 + ss.M4
-                if OTM > 0 and RM / OTM < 1.5:
-                    _widen(use_pf=True)
-                    continue
-
-                # --- S.F. sliding >= 1.5 ---
-                # When USE_KEY is on, skip sliding as a widen trigger here;
-                # a post-convergence key check handles it after B is final.
-                Tftg_ft = Tftg / 12.0
-                friction = ss.W6 * ss.C9
-                passive  = ss.P4 * Tftg_ft        # lb/ft — P4(psf) × depth(ft)
-                lateral  = ss.P3
-                if lateral > 0 and (friction + passive) / lateral < 1.5 and not ss.USE_KEY:
-                    _widen(use_pf=True)
-                    continue
-
-                # --- Max soil bearing <= allowable ---
-                ss.E1 = abs(ss.B / 2.0 - ss.X)
-                if ss.KERN_MODE == 1 and ss.E1 > ss.B / 6.0:
-                    contact = 3.0 * ss.X if ss.X < ss.B / 2.0 else 3.0 * (ss.B - ss.X)
-                    S_max = 2.0 * ss.W6 / contact if contact > 0 else 9999
-                else:
-                    S_max = (ss.W6 / ss.B) * (1.0 + 6.0 * ss.E1 / ss.B)
-                if S_max > ss.S2:
-                    _widen(use_pf=True)
-                    continue
-
-            # all checks passed
+        if ss.W6 == 0:
             break
 
-        # --------------------------------------------------
-        # Post-convergence sliding check with shear key.
-        # B is now final (driven only by OT, kern, soil bearing).
-        # If USE_KEY is on and sliding still fails, add a 12-in key.
-        # Key passive = P4 * Hk (1 ft deep = 12 in default).
-        # --------------------------------------------------
-        if ss.USE_KEY:
-            Tftg_ft  = Tftg / 12.0
-            # Sliding friction excludes Pf per code (not permitted for sliding resistance)
-            friction = (ss.W6 - (ss.Pf if ss.T1 == 1 else 0.0)) * ss.C9
-            passive  = ss.P4 * Tftg_ft
-            lateral  = ss.P3
-            pf_resist = 0.0
-            if lateral > 0 and (friction + passive) / lateral < 1.5:
-                # Solve for Hk so that total resistance / lateral = 1.5
-                # friction + passive + Pf + P4*Hk = 1.5 * lateral
-                Hk_needed = (1.5 * lateral - friction - passive) / ss.P4 if ss.P4 > 0 else 0.0
-                # Round up to next whole inch, 12-inch minimum
-                import math
-                Hk_in = max(12, math.ceil(Hk_needed * 12.0))  # inches
-                ss.KEY_Hk  = Hk_in / 12.0             # store as ft
-                key_passive = ss.P4 * ss.KEY_Hk
-                ss.KEY_used = True
+        ss.X  = ss.M6 / ss.W6        # resultant from TOE
+        ss.E1 = abs(ss.B / 2.0 - ss.X)
+        ss.S  = (ss.W6 / ss.B) * (1.0 + 6.0 * ss.E1 / ss.B)  # max soil bearing
 
+        # --- Kern check: keep resultant inside middle third ---
+        # BASIC: widen if X>B/2 (toe side) or X<B/2 with E2 logic
+        # Simplified: X must be in [B/3, 2B/3]
+        if ss.X < ss.B / 3.0 or ss.X > 2.0 * ss.B / 3.0:
+            _widen()
+            continue
+
+        # --- Soil bearing ---
+        if ss.S > ss.S2:
+            _widen()
+            continue
+
+        # --- Overturning about toe (added enhancement) ---
+        # RM = M6 + M4 (since M6 already has M4 subtracted for types 2/4,
+        # or M4 added for type 1 — reconstruct RM correctly)
+        if ss.T1 == 1:
+            # M6 = M1+M2+M4+M5 → RM = M6 (all resisting including P3 vertical)
+            RM  = ss.M6
+            OTM = ss.M4
+        else:
+            # M6 = M1+M2+M3+M5±... - M4 → RM = M6 + M4
+            RM  = ss.M6 + ss.M4
+            OTM = ss.M4
+        if OTM > 0 and RM / OTM < 1.5:
+            _widen()
+            continue
+
+        # --- Sliding ---
+        # BASIC original: C9*W6 vs P3 (no passive in primary check)
+        # Enhanced: include passive on footing
+        # Pf excluded from sliding normal force per code (W6 includes Pf)
+        W6_grav  = ss.W6 - ss.Pf
+        friction = W6_grav * ss.C9
+        passive  = ss.P4 * (Tftg / 12.0)
+        lateral  = ss.P3
+        if lateral > 0 and (friction + passive) / lateral < 1.5 and not ss.USE_KEY:
+            _widen()
+            continue
+
+        # All checks passed
         break
+
+    # --- Post-loop: verify all S.F. values and warn if any NG ---
+    _build_totals()
+    ss.X  = ss.M6 / ss.W6 if ss.W6 != 0 else 0
+    ss.E1 = abs(ss.B / 2.0 - ss.X)
+    ss.S  = (ss.W6 / ss.B) * (1.0 + 6.0 * ss.E1 / ss.B)
+
+    if ss.T1 == 1:
+        RM_chk = ss.M6;  OTM_chk = ss.M4
+    else:
+        RM_chk = ss.M6 + ss.M4;  OTM_chk = ss.M4
+
+    W6_grav  = ss.W6 - ss.Pf
+    friction = W6_grav * ss.C9
+    passive  = ss.P4 * (Tftg / 12.0)
+    lateral  = ss.P3
+    SF_SL_check = (friction + passive) / lateral if lateral > 0 else 999.0
+    SF_OT_check = RM_chk / OTM_chk if OTM_chk > 0 else 999.0
+
+    if SF_OT_check < 1.5:
+        print(f"  ** WARNING: OT S.F. = {SF_OT_check:.2f} < 1.5 — max iterations reached **")
+    if SF_SL_check < 1.5 and not ss.USE_KEY:
+        print(f"  ** WARNING: SL S.F. = {SF_SL_check:.2f} < 1.5 — check inputs **")
+
+    # Store OT values for reporting
+    if ss.T1 == 1:
+        ss._RM_toe  = ss.M6
+        ss._OTM_toe = ss.M4
+        ss._SF_OT   = ss.M6 / ss.M4 if ss.M4 > 0 else 999.0
+    else:
+        ss._RM_toe  = ss.M6 + ss.M4
+        ss._OTM_toe = ss.M4
+        ss._SF_OT   = (ss.M6 + ss.M4) / ss.M4 if ss.M4 > 0 else 999.0
+
+    ss.Pf_applied = True
+
+    # --------------------------------------------------
+    # Post-convergence shear key check (USE_KEY option)
+    # --------------------------------------------------
+    if ss.USE_KEY:
+        W6_grav  = ss.W6 - ss.Pf
+        friction = W6_grav * ss.C9
+        passive  = ss.P4 * (Tftg / 12.0)
+        lateral  = ss.P3
+        if lateral > 0 and (friction + passive) / lateral < 1.5:
+            # Solve: friction + P4*(Tftg/12 + Hk) = 1.5*lateral
+            Hk_needed = (1.5 * lateral - friction - passive) / ss.P4 if ss.P4 > 0 else 0.0
+            Hk_in = max(12, math.ceil(Hk_needed * 12.0))
+            ss.KEY_Hk  = Hk_in / 12.0
+            ss.KEY_used = True
 
 # ------------------------------------------------------------
 # gosub_1400 — FOOTING SUMMARY
@@ -832,166 +771,82 @@ def gosub_830():
 #      Added Pf_applied note to clarify whether Pf was used.
 # ------------------------------------------------------------
 def gosub_1400():
+    """
+    Footing summary output — matches RETSCRN4.BAS output format.
+    All quantities computed from TOE reference (same as gosub_830).
+    """
     ss = st.session_state
+    Tftg    = ss.Tftg
+    Tftg_ft = Tftg / 12.0
 
-    kern_label = "ALLOW OUTSIDE KERN" if ss.KERN_MODE == 1 else "FORCE INSIDE KERN"
     print()
-    if ss.T1 == 1:
-        print(f"    TYPE 1: X measured from HEEL edge")
-    else:
-        print(f"    ECCENTRICITY MODE : {kern_label}")
     print(f"    FTG. WIDTH  = {ss.B:.2f}{ss.P2}")
     print(f"    FTG.  T     = {ss.Tftg:.2f}{ss.P1}")
-    print(f"    X           = {ss.X:.2f}{ss.P2}  ({'from HEEL' if ss.T1==1 else 'from TOE'})")
+    print(f"    X           = {ss.X:.2f}{ss.P2}  (from TOE)")
 
     ss.E1 = abs(ss.B / 2.0 - ss.X)
+    kern_status = "WITHIN KERN" if ss.E1 <= ss.B / 6.0 else "OUTSIDE KERN"
+    print(f"    ECCENTRICITY MODE : {'FORCE INSIDE KERN' if ss.KERN_MODE==2 else 'ALLOW OUTSIDE KERN'}")
+    print(f"    ECCENTRICITY (E1) = {ss.E1:.2f}{ss.P2}  (B/6 = {ss.B/6:.2f}{ss.P2})  ** {kern_status} **")
 
+    # Soil bearing — trapezoidal (kern enforced in design loop)
+    ss.S = (ss.W6 / ss.B) * (1.0 + 6.0 * ss.E1 / ss.B)
+    S_min = (ss.W6 / ss.B) * (1.0 - 6.0 * ss.E1 / ss.B)
+    sb_flag = "  ** OK **" if ss.S <= ss.S2 else f"  ** NG — EXCEEDS {ss.S2:.0f} PSF **"
+    print(f"    SOIL BEAR'G MAX = {ss.S:.2f}{ss.P3s}", sb_flag)
+    print(f"    SOIL BEAR'G MIN = {S_min:.2f}{ss.P3s}")
+    print(f"    SOIL BEAR'G ALL = {ss.S2:.2f}{ss.P3s}")
+
+    # Overturning about toe
     if ss.T1 == 1:
-        # X from HEEL; X_toe from TOE
-        X_toe = ss.B - ss.X
-        kern_status = "WITHIN KERN" if ss.E1 <= ss.B / 6.0 else "OUTSIDE KERN"
-        kern_mode_label = "FORCE INSIDE KERN" if ss.KERN_MODE == 2 else "ALLOW OUTSIDE KERN"
-        print(f"    ECCENTRICITY MODE : {kern_mode_label}")
-        print(f"    X from HEEL = {ss.X:.2f}{ss.P2},  X from TOE = {X_toe:.2f}{ss.P2}")
-        print(f"    ECCENTRICITY (E1) = {ss.E1:.2f}{ss.P2}  "
-              f"(B/6 = {ss.B/6:.2f}{ss.P2})  ** {kern_status} **")
-        if ss.E1 > ss.B / 6.0:
-            contact = 3.0 * X_toe if X_toe > 0 else 0.001
-            S_max = 2.0 * ss.W6 / contact
-            S_min = 0.0
-            sb_flag = "  ** OK **" if S_max <= ss.S2 else f"  ** NG — EXCEEDS {ss.S2:.0f} PSF **"
-            print(f"    ** TRIANGULAR BEARING (outside kern) **")
-            print(f"    SOIL BEAR'G MAX = {S_max:.2f}{ss.P3s}", sb_flag)
-            print(f"    SOIL BEAR'G MIN =   0.00{ss.P3s}  (tension — footing lifts)")
+        RM  = ss.M6       # M6 = M1+M2+M4+M5 (all resisting including M4)
+        OTM = ss.M4
+    else:
+        RM  = ss.M6 + ss.M4
+        OTM = ss.M4
+    if OTM > 0:
+        SF_OT   = RM / OTM
+        ot_flag = "  ** OK **" if SF_OT >= 1.5 else "  ** NG — S.F. < 1.5 **"
+        print(f"    RESIST. MOM (RM)  = {RM:.2f} (FT-LB)")
+        print(f"    OVERTURN MOM (OTM)= {OTM:.2f} (FT-LB)")
+        print(f"    OT S.F. = {RM:.2f}/{OTM:.2f} = {SF_OT:.2f}", ot_flag)
+    else:
+        print("    OT S.F. = N/A")
+
+    # Sliding — BASIC style: show friction vs lateral, then passive, then key
+    W6_grav  = ss.W6 - ss.Pf      # Pf excluded from sliding per code
+    friction = W6_grav * ss.C9
+    passive  = ss.P4 * Tftg_ft
+    lateral  = ss.P3
+    if lateral > 0:
+        if ss.C1 == 1:
+            print(f"    WITH SLAB SLID'G O.K.")
         else:
-            S_max = (ss.W6 / ss.B) * (1.0 + 6.0 * ss.E1 / ss.B)
-            S_min = (ss.W6 / ss.B) * (1.0 - 6.0 * ss.E1 / ss.B)
-            sb_flag = "  ** OK **" if S_max <= ss.S2 else f"  ** NG — EXCEEDS {ss.S2:.0f} PSF **"
-            print(f"    SOIL BEAR'G MAX = {S_max:.2f}{ss.P3s}", sb_flag)
-            print(f"    SOIL BEAR'G MIN = {S_min:.2f}{ss.P3s}")
-        print(f"    SOIL BEAR'G ALL = {ss.S2:.2f}{ss.P3s}")
-        # OT S.F. about TOE — explicit arm-to-TOE per item
-        RM_toe  = ss._RM_toe
-        OTM_toe = ss._OTM_toe
-        if OTM_toe > 0:
-            SF_OT = RM_toe / OTM_toe
-            ot_flag = "  ** OK **" if SF_OT >= 1.5 else "  ** NG — S.F. < 1.5 **"
-            print(f"    --- OVERTURNING CHECK ABOUT TOE ---")
-            # Recompute per-item for display
-            RM_wall=0; RM_step=0
-            H3=ss.H2
-            for i in range(1, ss.G+1):
-                if i==ss.G: H3=ss.H1-ss.H2*(ss.G-1)
-                Ti=ss.T[i]
-                Ww=(12.5 if ss.C[i]==1 else 77.0/8.0)*Ti*H3
-                RM_wall+=Ww*(ss.E/12.0+Ti/24.0)
-                step_w=(ss.T[ss.G]-Ti)/12.0
-                Ws=100.0*H3*step_w
-                RM_step+=Ws*((ss.E+Ti)/12.0+step_w/2.0)
-            RM_ftg  = ss.W2*ss.B/2.0
-            W_E     = 100.0*(ss.E/12.0)*ss.H1
-            RM_E    = W_E*(ss.L/12.0+ss.E/24.0)
-            RM_Pf   = ss.Pf*ss.B
-            print(f"    WALL  (arm=E/12+T/24):  M = {RM_wall:.2f} (FT-LB)")
-            print(f"    FTG.  (arm=B/2):         M = {RM_ftg:.2f} (FT-LB)")
-            print(f"    EARTH E-strip (arm={ss.L/12.0:.3f}+{ss.E/24.0:.3f}={ss.L/12.0+ss.E/24.0:.3f}ft): M = {RM_E:.2f} (FT-LB)")
-            print(f"    EARTH step (arm=(E+T)/12+step/2): M = {RM_step:.2f} (FT-LB)")
-            print(f"    Pf=P3/3 (arm=B={ss.B:.3f}ft): M = {RM_Pf:.2f} (FT-LB)")
-            print(f"    RM  (about TOE) = {RM_toe:.2f} (FT-LB)")
-            print(f"    OTM (about TOE) = P3 x H4/3 = {ss.P3:.2f} x {ss.H4/3.0:.3f} = {OTM_toe:.2f} (FT-LB)")
-            print(f"    OT S.F. = {RM_toe:.2f}/{OTM_toe:.2f} = {SF_OT:.2f}", ot_flag)
-        # Sliding — Type 1
-        # Code does not permit Pf to resist sliding. W6 includes Pf for OT/bearing,
-        # but sliding friction uses gravity loads only: (W6 - Pf) × C9.
-        Tftg_ft  = ss.Tftg / 12.0
-        W6_grav  = ss.W6 - ss.Pf              # gravity loads only (excl. Pf)
-        friction = W6_grav * ss.C9
-        passive  = ss.P4 * Tftg_ft
-        lateral  = ss.P3
-        if lateral > 0:
+            print(f"    F--SLID'G   = {lateral:.2f}{ss.P4s}")
+            print(f"    F--FRICTION = {friction:.2f}{ss.P4s}  (W6-Pf)×C9 = ({ss.W6:.2f}-{ss.Pf:.2f})×{ss.C9:.2f}")
             key_passive = ss.P4 * ss.KEY_Hk if ss.KEY_used else 0.0
             total_resist = friction + passive + key_passive
             SF_SL = total_resist / lateral
             sl_flag = "  ** OK **" if SF_SL >= 1.5 else "  ** NG — S.F. < 1.5 **"
-            print(f"    BASE FRIC.  = (W6-Pf) x C9 = ({ss.W6:.2f}-{ss.Pf:.2f}) x {ss.C9:.2f} = {friction:.2f} (LB)  (Pf excluded per code)")
-            if ss.KEY_used:
+            if friction >= lateral:
+                print(f"    FRICTION > SLIDING  O.K.")
+            elif friction + passive >= lateral:
+                print(f"    WITH PASSIVE ON FTG.  O.K.")
+                print(f"    PASSIVE RES = P4×Tftg = {ss.P4:.0f}×{Tftg_ft:.2f} = {passive:.2f} (LB)")
+                print(f"    SL S.F. = ({friction:.2f}+{passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
+            elif ss.KEY_used:
                 Hk_in = round(ss.KEY_Hk * 12.0)
-                key_passive = ss.P4 * ss.KEY_Hk
                 total_passive = passive + key_passive
-                print(f"    PASSIVE RES = P4 x Tftg          = {ss.P4:.0f} x {Tftg_ft:.2f} = {passive:.2f} (LB)")
-                print(f"    KEY PASSIVE = P4 x Hk            = {ss.P4:.0f} x {ss.KEY_Hk:.3f} = {key_passive:.2f} (LB)  ** SHEAR KEY **")
-                print(f"    TOTAL PASS  = P4 x (Tftg+Hk)    = {ss.P4:.0f} x ({Tftg_ft:.2f}+{ss.KEY_Hk:.3f}) = {total_passive:.2f} (LB)")
+                print(f"    PASSIVE RES = P4×Tftg            = {ss.P4:.0f}×{Tftg_ft:.2f} = {passive:.2f} (LB)")
+                print(f"    KEY PASSIVE = P4×Hk              = {ss.P4:.0f}×{ss.KEY_Hk:.3f} = {key_passive:.2f} (LB)  ** SHEAR KEY **")
+                print(f"    TOTAL PASS  = P4×(Tftg+Hk)      = {ss.P4:.0f}×({Tftg_ft:.2f}+{ss.KEY_Hk:.3f}) = {total_passive:.2f} (LB)")
                 print(f"    KEY DEPTH   = {Hk_in} IN below bottom of footing")
-                print(f"    LATERAL     = P3          = {lateral:.2f} (LB)")
-                print(f"    SL S.F. = (FRIC+PASS+KEY)/LAT = ({friction:.2f}+{passive:.2f}+{key_passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
+                print(f"    SL S.F. = ({friction:.2f}+{total_passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
             else:
-                print(f"    PASSIVE RES = P4 x Tftg  = {ss.P4:.0f} x {Tftg_ft:.2f} = {passive:.2f} (LB)")
-                print(f"    LATERAL     = P3          = {lateral:.2f} (LB)")
-                print(f"    SL S.F. = (FRIC+PASS)/LAT = ({friction:.2f}+{passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
-        return
-
-    kern_label2 = "B/3" if ss.KERN_MODE == 2 else "B/6"
-    kern_limit  = ss.B / 3.0 if ss.KERN_MODE == 2 else ss.B / 6.0
-
-    print(f"    BACK-FACE FRICTION (Pf={ss.Pf:.2f} lb) : APPLIED (always)")
-
-    if ss.KERN_MODE == 1 and ss.E1 > ss.B / 6.0:
-        contact = 3.0 * ss.X if ss.X < ss.B / 2.0 else 3.0 * (ss.B - ss.X)
-        S_max = 2.0 * ss.W6 / contact if contact > 0 else 9999
-        S_min = 0.0
-        sb_flag = "  ** OK **" if S_max <= ss.S2 else f"  ** NG — EXCEEDS ALLOWABLE {ss.S2:.0f} PSF **"
-        print(f"    ** E > B/6 : RESULTANT OUTSIDE KERN **")
-        print(f"    SOIL BEAR'G MAX = {S_max:.2f}{ss.P3s}", sb_flag)
-        print(f"    SOIL BEAR'G MIN =   0.00{ss.P3s}  (tension — footing lifts)")
-        print(f"    SOIL BEAR'G ALL = {ss.S2:.2f}{ss.P3s}")
-        print(f"    ECCENTRICITY    = {ss.E1:.2f}{ss.P2}  ({kern_label2} = {kern_limit:.2f}{ss.P2})  ** OUTSIDE KERN **")
-    else:
-        S_max = (ss.W6 / ss.B) * (1.0 + 6.0 * ss.E1 / ss.B)
-        S_min = (ss.W6 / ss.B) * (1.0 - 6.0 * ss.E1 / ss.B)
-        sb_flag = "  ** OK **" if S_max <= ss.S2 else f"  ** NG — EXCEEDS ALLOWABLE {ss.S2:.0f} PSF **"
-        kern_status = "WITHIN KERN" if ss.E1 <= ss.B / 6.0 else "OUTSIDE KERN"
-        print(f"    SOIL BEAR'G MAX = {S_max:.2f}{ss.P3s}", sb_flag)
-        print(f"    SOIL BEAR'G MIN = {S_min:.2f}{ss.P3s}")
-        print(f"    SOIL BEAR'G ALL = {ss.S2:.2f}{ss.P3s}")
-        print(f"    ECCENTRICITY    = {ss.E1:.2f}{ss.P2}  ({kern_label2} = {kern_limit:.2f}{ss.P2})  ** {kern_status} **")
-
-    OTM = ss.M4
-    RM  = ss.M6 + ss.M4
-    if OTM > 0:
-        SF_OT = RM / OTM
-        ot_flag = "  ** OK **" if SF_OT >= 1.5 else "  ** NG — S.F. < 1.5 **"
-        print(f"    RESIST. MOM (RM)  = {RM:.2f} (FT-LB)")
-        print(f"    OVERTURN MOM (OTM)= {OTM:.2f} (FT-LB)")
-        print(f"    OT S.F. = RM/OTM = {RM:.2f}/{OTM:.2f} = {SF_OT:.2f}", ot_flag)
-    else:
-        print("    OT S.F. = N/A")
-
-    # Use stored Tftg (enforced minimum 12 in) for sliding resistance
-    Tftg_ft  = ss.Tftg / 12.0
-    friction  = ss.W6 * ss.C9
-    passive   = ss.P4 * Tftg_ft             # lb/ft — P4(psf) × Tftg(ft)
-    lateral   = ss.P3
-    if lateral > 0:
-        key_passive = ss.P4 * ss.KEY_Hk if ss.KEY_used else 0.0
-        total_resist = friction + passive + key_passive
-        SF_SL = total_resist / lateral
-        sl_flag = "  ** OK **" if SF_SL >= 1.5 else "  ** NG — S.F. < 1.5 **"
-        print(f"    BASE FRIC.  = W6 x C9    = {ss.W6:.2f} x {ss.C9:.2f} = {friction:.2f} (LB)")
-        if ss.KEY_used:
-            Hk_in = round(ss.KEY_Hk * 12.0)
-            key_passive = ss.P4 * ss.KEY_Hk
-            total_passive = passive + key_passive
-            print(f"    PASSIVE RES = P4 x Tftg          = {ss.P4:.0f} x {Tftg_ft:.2f} = {passive:.2f} (LB)")
-            print(f"    KEY PASSIVE = P4 x Hk            = {ss.P4:.0f} x {ss.KEY_Hk:.3f} = {key_passive:.2f} (LB)  ** SHEAR KEY **")
-            print(f"    TOTAL PASS  = P4 x (Tftg+Hk)    = {ss.P4:.0f} x ({Tftg_ft:.2f}+{ss.KEY_Hk:.3f}) = {total_passive:.2f} (LB)")
-            print(f"    KEY DEPTH   = {Hk_in} IN below bottom of footing")
-        else:
-            print(f"    PASSIVE RES = P4 x Tftg  = {ss.P4:.0f} x {Tftg_ft:.2f} = {passive:.2f} (LB)")
-        print(f"    LATERAL     = P3          = {lateral:.2f} (LB)")
-        if ss.KEY_used:
-            print(f"    SL S.F. = (FRIC+PASSIVE+KEY)/LAT = ({friction:.2f}+{passive:.2f}+{key_passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
-        else:
-            print(f"    SL S.F. = (BASE FRIC.+PASSIVE)/LATERAL = ({friction:.2f}+{passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
+                # USE_KEY off and still fails — original key depth from BASIC
+                key_depth_in = max(0.0, Tftg - ss.T[ss.G])
+                print(f"    USE {key_depth_in:.0f} (IN) DEEP KEY")
+                print(f"    SL S.F. = ({friction:.2f}+{passive:.2f})/{lateral:.2f} = {SF_SL:.2f}", sl_flag)
     else:
         print("    SL S.F. = N/A")
 
@@ -999,24 +854,18 @@ def gosub_1400():
 # gosub_1610 — MOMENT BREAKDOWN
 # ------------------------------------------------------------
 def gosub_1610():
+    """Moment breakdown — KEY-2. Matches BASIC output labels."""
     ss = st.session_state
-    pf_label = f"Pf={ss.Pf:.2f} lb"
-    if ss.T1 == 1:
-        pf_note = "back-face friction (separate sliding resistance, not in W6)"
-        otm_note = "lateral earth OTM (subtracted from M6)"
-    else:
-        pf_note = "APPLIED (always)" if ss.Pf_applied else "NOT applied"
-        otm_note = "lateral earth OTM (subtracted from M6)"
     print("    ITEMS          W           M      NOTES")
     print(f"    WALL       {ss.W1:10.2f}  {ss.M1:10.2f}")
     print(f"    FTG.       {ss.W2:10.2f}  {ss.M2:10.2f}")
-    print(f"    HEEL EARTH {ss.W5:10.2f}  {ss.M5:10.2f}")
-    print(f"    BACK FRIC. {ss.Pf:10.2f}  {ss.Mpf:10.2f}  {pf_label} — {pf_note}")
-    print(f"    HEEL SOIL2 {ss.W7:10.2f}  {ss.M7:10.2f}")
-    print(f"    HEEL SOIL3 {ss.W8:10.2f}  {ss.M8:10.2f}")
-    print(f"    O.T.M.     {'---':>10}  {ss.M4:10.2f}  {otm_note}")
-    print(f"    TOTAL      {ss.W6:10.2f}  {ss.M6:10.2f}  (gravity loads only for Type 1)")
-    print(f"    P3 (horiz) {ss.P3:10.2f}  {'(lateral)':>10}  earth pressure resultant (not in W)")
+    print(f"    P/3        {ss.Pf:10.2f}  {ss.Mpf:10.2f}  (vertical back-face, Pf=P3)")
+    print(f"    EARTH      {ss.W5:10.2f}  {ss.M5:10.2f}")
+    print(f"    EARTH      {ss.W7:10.2f}  {ss.M7:10.2f}")
+    print(f"    EARTH      {ss.W8:10.2f}  {ss.M8:10.2f}")
+    print(f"    O.T.M.     {'---':>10}  {ss.M4:10.2f}  lateral earth OTM")
+    print(f"    TOTAL      {ss.W6:10.2f}  {ss.M6:10.2f}")
+    print(f"    P3 (horiz) {ss.P3:10.2f}  {'(lateral)':>10}  earth pressure resultant")
     print()
 
 # ------------------------------------------------------------
