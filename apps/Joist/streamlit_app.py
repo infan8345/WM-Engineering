@@ -219,7 +219,7 @@ def calculate_table(B, D1, loads, is_roof, plaster_flag, grade, factors_input):
         Fv = 180
         Fv_adj = Fv * CD * CM * Ct * Ci
         if w_total_plf > 0:
-            L_shear_ft = (2.0 * Fv_adj * B * D1) / (1.5 * w_total_plf * 12.0)
+            L_shear_ft = (2.0 * Fv_adj * B * D1) / (1.5 * w_total_plf)
         else:
             L_shear_ft = 999.0
 
@@ -229,6 +229,7 @@ def calculate_table(B, D1, loads, is_roof, plaster_flag, grade, factors_input):
                 "Spacing": f'{spacing}"',
                 "Moment Span (ft)": round(L_moment_ft, 2),
                 "Deflection Span (ft)": round(L_def_ft, 2),
+                "Shear Span (ft)": round(L_shear_ft, 2),
                 "CL (Stab)": round(CL, 3),
                 "Allowable Span (ft)": round(allowable, 2),
             }
