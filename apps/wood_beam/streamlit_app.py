@@ -121,10 +121,13 @@ def compute_main_span_moment(L, pls, dls):
     crit = sorted({0.0, L} | {a for a,_ in pls} | {c for x1,x2,_ in dls for c in (x1,x2)})
     extra = []
     for i in range(len(crit)-1):
-        if (xL:=crit[i]) != (xR:=crit[i+1]) and V(xL+1e-6)*V(xR-1e-6) < 0:
+        xL, xR = crit[i], crit[i+1]
+        if xR > xL and V(xL+1e-6)*V(xR-1e-6) < 0:
             lo, hi = xL, xR
             for _ in range(30):
-                mid=(lo+hi)/2; (lo if V(mid)>0 else [hi:=mid or hi]); lo = mid if V(mid)>0 else lo; hi = mid if V(mid)<=0 else hi
+                mid = (lo+hi)/2
+                if V(mid) > 0: lo = mid
+                else: hi = mid
             extra.append((lo+hi)/2)
     M_max = 0.0
     for x in sorted(set(crit+extra)):
@@ -145,7 +148,8 @@ def compute_cantilever_reaction(L, pls, dls):
     return sum(P for _,P in pls) + sum(w*(x2-x1) for x1,x2,w in dls)
 
 # ── Section selection ─────────────────────────────────────────────────
-def select_wood_beam(M, L, pls, dls, defl_limit, const_dim, const_value, is_cant, mat_filter=None):
+def select_wood_beam(M, L, pls, dls, defl_limit, const_dim, const_value,
+                     is_cant, mat_filter=None):
     allow = L*12/defl_limit
     cands = []
     for desc,mat,w,d,plf,fb,e,Ix,Sx in wood_list:
@@ -157,7 +161,7 @@ def select_wood_beam(M, L, pls, dls, defl_limit, const_dim, const_value, is_cant
         if defl <= allow:
             cands.append((plf,desc,mat,w,d,Ix,Sx,defl,M*12000/fb))
     if not cands: return None
-    cands.sort(key=lambda x:x[0])
+    cands.sort(key=lambda x: x[0])
     b = cands[0]
     return (b[1],b[2],b[5],b[8],b[5],b[6],b[7],b[3],b[4],b[0])
 
@@ -171,7 +175,7 @@ def select_steel_beam(M, L, pls, dls, defl_limit, is_cant):
         if defl <= allow:
             cands.append((plf,desc,Ix,Sx,defl,S_req))
     if cands:
-        cands.sort(key=lambda x:x[0]); b=cands[0]
+        cands.sort(key=lambda x: x[0]); b=cands[0]
         return (b[1],b[2],b[5],b[2],b[3],b[4])
     last = steel_sections[-1]
     return (last[0],last[1],M*12000/last[4],last[1],last[2],0.0)
@@ -210,7 +214,8 @@ def plot_beam(beams_data, L0, loc, beam_label, sel_desc, sel_mat,
             while xv < px2-1e-6:
                 ax.plot([xv,xv],[0,h],'b-',linewidth=0.8,alpha=0.7,zorder=3); xv+=1.0
             ax.plot([px1,px2],[h,h],'b-',linewidth=1.5)
-            ax.text((px1+px2)/2,h+0.07,f"{w:.3g}k/ft",ha='center',color='blue',fontsize=11)
+            ax.text((px1+px2)/2,h+0.07,f"{w:.3g}k/ft",
+                    ha='center',color='blue',fontsize=11)
 
         for a,P in pl:
             if P==0: continue
@@ -221,7 +226,8 @@ def plot_beam(beams_data, L0, loc, beam_label, sel_desc, sel_mat,
             ax.text(xp,h+0.07,f"{P:.3g}k",ha='center',color='red',fontsize=11)
 
         if M > 0:
-            mx = -left_len/2 if beam_id==1 else (main_len/2 if beam_id==2 else main_len+right_len/2)
+            mx = (-left_len/2 if beam_id==1 else
+                  (main_len/2 if beam_id==2 else main_len+right_len/2))
             ax.text(mx,-0.28,f"M={M:.1f}",ha='center',color='purple',fontsize=11)
 
     if main_len > 0:
@@ -262,7 +268,6 @@ def generate_latex_content(loc, beam_label, defl_limit, L0, results_summary, max
     left_len,main_len,right_len = L0[1],L0[2],L0[3]
     date_str = datetime.date.today().strftime("%B %d, %Y")
     span_names = {1:"Left Cantilever", 2:"Main Span", 3:"Right Cantilever"}
-
     L = [
         r'\documentclass[11pt]{article}',
         r'\usepackage[margin=1in,top=1.1in,bottom=1in]{geometry}',
@@ -300,7 +305,6 @@ def generate_latex_content(loc, beam_label, defl_limit, L0, results_summary, max
          f'Right Cant. = {right_len:.2f} ft \\quad '
          f'Max Moment = {max_M:.2f} ft-kips \\\\[6pt]'),
     ]
-
     for bid, sname in span_names.items():
         if bid not in results_summary: continue
         r = results_summary[bid]
@@ -340,36 +344,30 @@ def generate_latex_content(loc, beam_label, defl_limit, L0, results_summary, max
         else:
             L.append(r'\multicolumn{2}{l}{\textcolor{red}{No adequate section found.}} \\')
         L.append(r'\end{tabular}')
-
     L += [r'\end{document}', '']
     return '\n'.join(L)
 
 def compile_latex_to_pdf(tex_content, img_bytes):
-    """Compile .tex + diagram PNG to PDF bytes. Returns None if pdflatex unavailable."""
     try:
         with tempfile.TemporaryDirectory() as tmp:
             tex_path = os.path.join(tmp, 'beam_report.tex')
             img_path = os.path.join(tmp, 'beam_diagram.png')
-            with open(tex_path, 'w') as f:
-                f.write(tex_content)
-            with open(img_path, 'wb') as f:
-                f.write(img_bytes)
-            for _ in range(2):  # run twice for page numbers
-                r = subprocess.run(
+            with open(tex_path, 'w') as f: f.write(tex_content)
+            with open(img_path, 'wb') as f: f.write(img_bytes)
+            for _ in range(2):
+                subprocess.run(
                     ['pdflatex', '-interaction=nonstopmode',
                      '-output-directory', tmp, tex_path],
                     capture_output=True, timeout=30)
             pdf_path = os.path.join(tmp, 'beam_report.pdf')
             if os.path.exists(pdf_path):
-                with open(pdf_path, 'rb') as f:
-                    return f.read()
+                with open(pdf_path, 'rb') as f: return f.read()
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
     return None
 
 # ── Streamlit UI ──────────────────────────────────────────────────────
 def span_input(name, span_len, prefix):
-    """Render load inputs for one span. Returns point_loads, dist_loads."""
     n_pt = int(st.number_input("Number of point loads", 0, 10, 0, key=f"{prefix}_n"))
     point_loads = []
     cumul = 0.0
@@ -380,7 +378,6 @@ def span_input(name, span_len, prefix):
         d   = c2.number_input(lbl, 0.0, float(span_len), 0.0, step=0.5, key=f"{prefix}_d{i}")
         cumul += d
         point_loads.append((cumul, P))
-
     seg_bounds = [0.0] + [pl[0] for pl in point_loads] + [span_len]
     n_seg = n_pt + 1
     dist_loads = []
@@ -389,7 +386,7 @@ def span_input(name, span_len, prefix):
     for s in range(n_seg):
         x1, x2 = seg_bounds[s], seg_bounds[s+1]
         w = cols[s % 4].number_input(
-            f"Seg {s+1}\n{x1:.1f}–{x2:.1f} ft",
+            f"Seg {s+1}  {x1:.1f}–{x2:.1f} ft",
             value=0.0, step=0.05, key=f"{prefix}_w{s}")
         if w != 0 and x2 > x1:
             dist_loads.append((x1, x2, w))
@@ -403,14 +400,13 @@ def main():
 
     # ── Global settings ──────────────────────────────────────────────
     c1, c2, c3 = st.columns([2,2,2])
-    mat_choice = c1.selectbox("Beam Material",
+    mat_choice = c1.selectbox("Beam Type",
         ["STEEL BEAM","WOOD/PSL BEAM","ROOF BEAM","FLOOR BEAM","LVL BEAM"])
     loc = c2.text_input("Beam Location / Mark", "BM-1")
 
-    beam_mat = ["STEEL BEAM","WOOD/PSL BEAM","ROOF BEAM","FLOOR BEAM","LVL BEAM"].index(mat_choice)
+    beam_mat    = ["STEEL BEAM","WOOD/PSL BEAM","ROOF BEAM","FLOOR BEAM","LVL BEAM"].index(mat_choice)
     force_steel = (beam_mat == 0)
     force_lvl   = (beam_mat == 4)
-    mat_filter  = "lvl" if force_lvl else None
     beam_label  = mat_choice
 
     if beam_mat == 2:
@@ -420,6 +416,25 @@ def main():
     else:
         defl_limit = 240
         c3.metric("Deflection Limit", f"L/{defl_limit}")
+
+    # Wood material sub-filter
+    mat_filter = None
+    if force_lvl:
+        mat_filter = "lvl"
+        st.info("LVL sections: 1.75\" × 14\" and 1.75\" × 16\", 1–4 plies  "
+                "(Fb = 2600 psi, E = 1900 ksi)")
+    elif not force_steel:
+        wood_mat_choice = st.radio(
+            "Wood Material",
+            ["All (Sawn + PSL + LVL)", "Sawn Lumber Only", "PSL Only",
+             "LVL Only  (1.75\" × 14\" / 16\", 1–4 plies)"],
+            horizontal=True)
+        if wood_mat_choice == "Sawn Lumber Only":
+            mat_filter = "sawn"
+        elif wood_mat_choice == "PSL Only":
+            mat_filter = "psl"
+        elif wood_mat_choice.startswith("LVL Only"):
+            mat_filter = "lvl"
 
     const_dim, const_value = None, None
     if not force_steel:
@@ -436,9 +451,9 @@ def main():
     # ── Span lengths ─────────────────────────────────────────────────
     st.subheader("Span Lengths (ft)")
     s1, s2, s3 = st.columns(3)
-    left_len  = s1.number_input("Left Cantilever", 0.0, 100.0, 0.0, 0.5)
-    main_len  = s2.number_input("Main Span",       0.0, 200.0, 20.0, 0.5)
-    right_len = s3.number_input("Right Cantilever", 0.0, 100.0, 0.0, 0.5)
+    left_len  = s1.number_input("Left Cantilever",  0.0, 100.0,  0.0, 0.5)
+    main_len  = s2.number_input("Main Span",         0.0, 200.0, 20.0, 0.5)
+    right_len = s3.number_input("Right Cantilever",  0.0, 100.0,  0.0, 0.5)
     L0 = [0.0, left_len, main_len, right_len, 0.0]
     st.divider()
 
@@ -459,9 +474,7 @@ def main():
 
     st.divider()
 
-    # ── Calculate ─────────────────────────────────────────────────────
     if st.button("⚡  Calculate", type="primary", use_container_width=True):
-        # build beams_data
         beams_data = {}
         for bid, sname, slen, is_cant, pfx in span_cfg:
             pl, dl = all_pl[bid], all_dl[bid]
@@ -475,7 +488,6 @@ def main():
                 M, R1, R2 = compute_main_span_moment(slen, pl, dl)
                 beams_data[bid] = (pl, dl, M, R1, R2, slen, is_cant)
 
-        # ── Results ──────────────────────────────────────────────────
         st.divider()
         st.header("Results")
         results_summary = {}
@@ -483,7 +495,6 @@ def main():
         for bid, sname, slen, is_cant, pfx in span_cfg:
             pl, dl, M, R1, R2, L, _ = beams_data[bid]
             if L == 0: continue
-
             st.subheader(f"{sname}  —  {L:.2f} ft")
             da = L*12/defl_limit
             m1, m2, m3 = st.columns(3)
@@ -505,11 +516,12 @@ def main():
                 entry.update({'type':'steel','desc':desc,'S_req':Sr,
                               'I_prov':Ip,'S_prov':Sp,'defl':defl})
             else:
-                wr = select_wood_beam(M,L,pl,dl,defl_limit,const_dim,const_value,is_cant,mat_filter)
+                wr = select_wood_beam(M,L,pl,dl,defl_limit,const_dim,const_value,
+                                      is_cant,mat_filter)
                 if wr is None:
                     st.error("No adequate section found for this span.")
                     entry['type'] = 'none'
-                    if not force_lvl:
+                    if mat_filter != 'lvl':
                         desc,Ir,Sr,Ip,Sp,defl = select_steel_beam(M,L,pl,dl,defl_limit,is_cant)
                         if desc != "None":
                             st.info(f"Steel alternative: **{desc}**  "
@@ -529,19 +541,16 @@ def main():
                                   'width':width,'depth':depth,'plf':plf})
             results_summary[bid] = entry
 
-        # ── Diagram ──────────────────────────────────────────────────
-        st.divider()
-        st.subheader("Beam Loading Diagram")
-
+        # Diagram label — governing span, prefer main span
         all_M = [beams_data[bid][2] for bid in [1,2,3] if beams_data[bid][5]>0]
         max_M = max(all_M) if all_M else 0
         sel_desc = sel_mat = ""; sel_cap = sel_w = sel_d = 0.0
         best_M = 0
-        for bid in [2, 1, 3]:   # prefer main span first
+        for bid in [2, 1, 3]:
             if bid not in results_summary: continue
             r = results_summary[bid]
             if r.get('type') == 'wood' and r['M'] > best_M:
-                best_M = r['M']
+                best_M   = r['M']
                 sel_desc = r['desc']
                 sel_mat  = r['mat']
                 sel_w    = r['width']
@@ -549,22 +558,21 @@ def main():
                 fb = 2600 if r['mat']=='lvl' else (2900 if r['mat']=='psl' else 1200)
                 sel_cap  = fb * r['S_prov'] / 12000
 
+        st.divider()
+        st.subheader("Beam Loading Diagram")
         fig = plot_beam(beams_data, L0, loc, beam_label,
                         sel_desc, sel_mat, sel_w, sel_d, sel_cap, max_M, defl_limit)
         st.pyplot(fig)
 
-        # PNG bytes
         buf = io.BytesIO()
         fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
         png_bytes = buf.getvalue()
         plt.close(fig)
 
-        # ── Downloads ─────────────────────────────────────────────────
         st.divider()
         st.subheader("Downloads")
-
-        tex_str = generate_latex_content(loc, beam_label, defl_limit, L0,
-                                         results_summary, max_M)
+        tex_str   = generate_latex_content(loc, beam_label, defl_limit, L0,
+                                           results_summary, max_M)
         pdf_bytes = compile_latex_to_pdf(tex_str, png_bytes)
 
         d1, d2, d3 = st.columns(3)
