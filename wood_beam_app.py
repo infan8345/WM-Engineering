@@ -3,7 +3,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-import math, re, os, io
+import math, re, os, datetime, subprocess, tempfile, io
 
 # ── Wood / Steel databases ────────────────────────────────────────────
 wood_sections_raw = [
@@ -256,6 +256,116 @@ def plot_beam(beams_data, L0, loc, beam_label, sel_desc, sel_mat,
     plt.tight_layout(rect=[0,0.06,1,1])
     return fig
 
+# ── LaTeX helpers ─────────────────────────────────────────────────────
+def tex_esc(s):
+    for old,new in [('\\',r'\textbackslash{}'),('&',r'\&'),('%',r'\%'),
+                    ('$',r'\$'),('#',r'\#'),('^',r'\^{}'),('_',r'\_'),
+                    ('{',r'\{'),('}',r'\}'),('~',r'\~{}')]:
+        s = s.replace(old,new)
+    return s
+
+def generate_latex_content(loc, beam_label, defl_limit, L0, results_summary, max_M):
+    left_len,main_len,right_len = L0[1],L0[2],L0[3]
+    date_str = datetime.date.today().strftime("%B %d, %Y")
+    span_names = {1:"Left Cantilever", 2:"Main Span", 3:"Right Cantilever"}
+    L = [
+        r'\documentclass[11pt]{article}',
+        r'\usepackage[margin=1in,top=1.1in,bottom=1in]{geometry}',
+        r'\usepackage{graphicx}',
+        r'\usepackage{booktabs}',
+        r'\usepackage{fancyhdr}',
+        r'\usepackage{xcolor}',
+        r'\pagestyle{fancy}',
+        r'\fancyhf{}',
+        r'\lhead{\textbf{BEAM DESIGN REPORT}}',
+        r'\rhead{' + tex_esc(loc) + r'}',
+        r'\lfoot{Prepared: ' + date_str + r'}',
+        r'\rfoot{Page \thepage}',
+        r'\renewcommand{\headrulewidth}{0.6pt}',
+        r'\renewcommand{\footrulewidth}{0.4pt}',
+        r'\begin{document}',
+        r'\begin{center}',
+        r'{\LARGE \textbf{BEAM DESIGN REPORT}}\\[8pt]',
+        r'{\large \textbf{Location:} ' + tex_esc(loc) + r'}\\[4pt]',
+        r'{\large \textbf{Beam Type:} ' + tex_esc(beam_label) + r'}\\[4pt]',
+        r'{\large \textbf{Deflection Limit:} L/' + str(defl_limit) + r'}\\[4pt]',
+        r'\textbf{Date:} ' + date_str,
+        r'\end{center}',
+        r'\vspace{0.1in}',
+        r'\noindent\rule{\textwidth}{0.6pt}',
+        r'\begin{figure}[h]',
+        r'\centering',
+        r'\includegraphics[width=\textwidth]{beam_diagram}',
+        r'\caption{Beam Loading Diagram}',
+        r'\end{figure}',
+        r'\noindent\rule{\textwidth}{0.4pt}\\[4pt]',
+        (f'\\textbf{{Beam Geometry:}}\\quad '
+         f'Left Cant. = {left_len:.2f} ft \\quad '
+         f'Main Span = {main_len:.2f} ft \\quad '
+         f'Right Cant. = {right_len:.2f} ft \\quad '
+         f'Max Moment = {max_M:.2f} ft-kips \\\\[6pt]'),
+    ]
+    for bid, sname in span_names.items():
+        if bid not in results_summary: continue
+        r = results_summary[bid]
+        da = r['L']*12/defl_limit
+        L += [
+            r'\vspace{0.1in}',
+            r'\subsection*{' + sname + f' --- {r["L"]:.2f} ft' + r'}',
+            r'\begin{tabular}{@{}ll@{}}',
+            r'\textbf{Support:} & ' + ('Cantilever' if r['is_cant'] else 'Simply Supported') + r' \\',
+            r'\textbf{Max Moment:} & ' + f'{r["M"]:.2f} ft-kips' + r' \\',
+            r'\textbf{Defl. Limit:} & L/' + str(defl_limit) + f' = {da:.3f} in' + r' \\',
+        ]
+        if r['type'] == 'steel':
+            L += [
+                r'\textbf{Selected:} & \textbf{' + tex_esc(r['desc']) + r'} \\',
+                r'\textbf{Req. S:} & ' + f'{r["S_req"]:.1f} in$^3$' + r' \\',
+                r'\textbf{Prov. I:} & ' + f'{r["I_prov"]:.0f} in$^4$' + r' \\',
+                r'\textbf{Prov. S:} & ' + f'{r["S_prov"]:.1f} in$^3$' + r' \\',
+                r'\textbf{Deflection:} & ' + f'{r["defl"]:.3f} in' + r' \\',
+                r'\textbf{Reactions R1/R2:} & ' + f'{r["R1"]:.2f} k / {r["R2"]:.2f} k' + r' \\',
+            ]
+        elif r['type'] == 'wood':
+            react = (r'\textbf{Reaction (fixed):} & ' + f'{r["R1"]:.2f} kips' + r' \\'
+                     if r['is_cant'] else
+                     r'\textbf{Reactions R1/R2:} & ' + f'{r["R1"]:.2f} k / {r["R2"]:.2f} k' + r' \\')
+            L += [
+                r'\textbf{Material:} & ' + r['mat'].upper() + r' \\',
+                r'\textbf{Selected:} & \textbf{' + tex_esc(r['desc']) + r'} \\',
+                r'\textbf{Dimensions:} & ' + f'{r["width"]:.3f}$^{{\\prime\\prime}}$ $\\times$ {r["depth"]:.1f}$^{{\\prime\\prime}}$' + r' \\',
+                r'\textbf{Self Weight:} & ' + f'{r["plf"]:.1f} lb/ft' + r' \\',
+                r'\textbf{Req. S:} & ' + f'{r["S_req"]:.1f} in$^3$' + r' \\',
+                r'\textbf{Prov. I:} & ' + f'{r["I_prov"]:.0f} in$^4$' + r' \\',
+                r'\textbf{Prov. S:} & ' + f'{r["S_prov"]:.1f} in$^3$' + r' \\',
+                r'\textbf{Deflection:} & ' + f'{r["defl"]:.3f} in' + r' \\',
+                react,
+            ]
+        else:
+            L.append(r'\multicolumn{2}{l}{\textcolor{red}{No adequate section found.}} \\')
+        L.append(r'\end{tabular}')
+    L += [r'\end{document}', '']
+    return '\n'.join(L)
+
+def compile_latex_to_pdf(tex_content, img_bytes):
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            tex_path = os.path.join(tmp, 'beam_report.tex')
+            img_path = os.path.join(tmp, 'beam_diagram.png')
+            with open(tex_path, 'w') as f: f.write(tex_content)
+            with open(img_path, 'wb') as f: f.write(img_bytes)
+            for _ in range(2):
+                subprocess.run(
+                    ['pdflatex', '-interaction=nonstopmode',
+                     '-output-directory', tmp, tex_path],
+                    capture_output=True, timeout=30)
+            pdf_path = os.path.join(tmp, 'beam_report.pdf')
+            if os.path.exists(pdf_path):
+                with open(pdf_path, 'rb') as f: return f.read()
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return None
+
 # ── Streamlit UI ──────────────────────────────────────────────────────
 def span_input(name, span_len, prefix):
     n_pt = int(st.number_input("Number of point loads", 0, 10, 0, key=f"{prefix}_n"))
@@ -460,10 +570,25 @@ def main():
         plt.close(fig)
 
         st.divider()
-        st.subheader("Download")
-        st.download_button("⬇ Diagram (PNG)", png_bytes,
+        st.subheader("Downloads")
+        tex_str   = generate_latex_content(loc, beam_label, defl_limit, L0,
+                                           results_summary, max_M)
+        pdf_bytes = compile_latex_to_pdf(tex_str, png_bytes)
+
+        d1, d2, d3 = st.columns(3)
+        d1.download_button("⬇ Diagram (PNG)", png_bytes,
                            file_name="beam_diagram.png", mime="image/png",
                            use_container_width=True)
+        d2.download_button("⬇ LaTeX (.tex)", tex_str,
+                           file_name="beam_report.tex", mime="text/plain",
+                           use_container_width=True)
+        if pdf_bytes:
+            d3.download_button("⬇ PDF Report", pdf_bytes,
+                               file_name="beam_report.pdf", mime="application/pdf",
+                               use_container_width=True)
+            st.success("PDF generated successfully!")
+        else:
+            d3.info("Install MiKTeX for PDF\nor paste .tex into Overleaf")
 
 if __name__ == "__main__":
     main()
