@@ -37,15 +37,28 @@ wood_sections_raw = [
     ("7\" x 14\" PSL",        "psl", 7.0,  14.0,   30.0, 2900, 2000),
     ("7\" x 16\" PSL",        "psl", 7.0,  16.0,   34.4, 2900, 2000),
     ("7\" x 18\" PSL",        "psl", 7.0,  18.0,   38.7, 2900, 2000),
-    ("1-ply 1.75\" x 14\" LVL", "lvl", 1.75, 14.0,  6.1, 2600, 1900),
-    ("1-ply 1.75\" x 16\" LVL", "lvl", 1.75, 16.0,  7.0, 2600, 1900),
-    ("2-ply 1.75\" x 14\" LVL", "lvl", 3.50, 14.0, 12.2, 2600, 1900),
-    ("2-ply 1.75\" x 16\" LVL", "lvl", 3.50, 16.0, 14.0, 2600, 1900),
-    ("3-ply 1.75\" x 14\" LVL", "lvl", 5.25, 14.0, 18.4, 2600, 1900),
-    ("3-ply 1.75\" x 16\" LVL", "lvl", 5.25, 16.0, 21.0, 2600, 1900),
-    ("4-ply 1.75\" x 14\" LVL", "lvl", 7.00, 14.0, 24.5, 2600, 1900),
-    ("4-ply 1.75\" x 16\" LVL", "lvl", 7.00, 16.0, 28.0, 2600, 1900),
 ]
+
+# LVL database: common depths through 18 inches, 1–4 plies.
+# Generic design values match the original app assumptions. Verify the
+# selected product against the manufacturer's current evaluation report.
+LVL_DEPTHS = [5.5, 7.25, 9.25, 9.5, 11.25, 11.875, 14.0, 16.0, 18.0]
+LVL_PLY_COUNTS = [1, 2, 3, 4]
+LVL_PLY_WIDTH = 1.75       # in per ply
+LVL_DENSITY_PCF = 36.0     # used only to estimate self-weight
+LVL_FB = 2600              # psi; generic app assumption
+LVL_E = 1900               # ksi; generic app assumption
+
+for plies in LVL_PLY_COUNTS:
+    width = plies * LVL_PLY_WIDTH
+    for depth in LVL_DEPTHS:
+        plf = round(width * depth / 144.0 * LVL_DENSITY_PCF, 1)
+        depth_label = f"{depth:g}"
+        desc = f'{plies}-ply {LVL_PLY_WIDTH:g}" x {depth_label}" LVL'
+        wood_sections_raw.append(
+            (desc, "lvl", width, depth, plf, LVL_FB, LVL_E)
+        )
+
 wood_list = []
 for _e in wood_sections_raw:
     desc, mat, w, d, plf, fb, e = _e
@@ -395,7 +408,7 @@ def span_input(name, span_len, prefix):
 def main():
     st.set_page_config(page_title="Beam Design", page_icon="🏗", layout="wide")
     st.title("🏗 Wood / Steel Beam Design Calculator")
-    st.caption("Sawn Lumber · PSL · LVL · Steel  |  Cantilever + Main Span")
+    st.caption("Sawn Lumber · PSL · LVL (5.5\"–18\", 1–4 plies) · Steel  |  Cantilever + Main Span")
     st.divider()
 
     # ── Global settings ──────────────────────────────────────────────
@@ -421,13 +434,13 @@ def main():
     mat_filter = None
     if force_lvl:
         mat_filter = "lvl"
-        st.info("LVL sections: 1.75\" × 14\" and 1.75\" × 16\", 1–4 plies  "
-                "(Fb = 2600 psi, E = 1900 ksi)")
+        st.info("LVL sections: 1.75\" per ply, common depths from 5.5\" through 18\", "
+                "1–4 plies  (generic Fb = 2600 psi, E = 1900 ksi)")
     elif not force_steel:
         wood_mat_choice = st.radio(
             "Wood Material",
             ["All (Sawn + PSL + LVL)", "Sawn Lumber Only", "PSL Only",
-             "LVL Only  (1.75\" × 14\" / 16\", 1–4 plies)"],
+             "LVL Only  (5.5\"–18\" depths, 1–4 plies)"],
             horizontal=True)
         if wood_mat_choice == "Sawn Lumber Only":
             mat_filter = "sawn"
